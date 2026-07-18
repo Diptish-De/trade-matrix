@@ -3,7 +3,7 @@ import {
   Save, ChevronDown, AlertTriangle, TrendingUp, Package,
   Truck, Wheat, IndianRupee, BarChart3, RefreshCw, Zap,
   CheckCircle2, ArrowRight, Activity, Download, Printer,
-  DollarSign, Euro, Trash2, FolderOpen
+  DollarSign, Euro, Trash2, FolderOpen, Settings2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
