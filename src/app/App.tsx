@@ -592,191 +592,196 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-
-            {/* ── 1. Volume ── */}
-            <InputSection icon={<Wheat className="w-3.5 h-3.5" />} title="Deal Volume">
-              <FieldLabel>Quantity</FieldLabel>
-              <div className="flex gap-2">
-                <NumInput value={inp.volume} onChange={(v) => set("volume", v)} placeholder="100" />
-                <StyledSelect value={inp.volumeUnit} onChange={(v) => set("volumeUnit", v as Inputs["volumeUnit"])} options={["MT", "kg", "Quintal"]} />
-              </div>
-              <AnimatePresence>
-                {inp.volume && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                    className="text-[11px] text-emerald-500 mt-2 font-mono font-semibold"
-                  >
-                    = {fmt(result.volumeKg, 0)} kg &nbsp;·&nbsp; {fmt(result.volumeMT, 3)} MT
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </InputSection>
-
-            {/* ── 2. Procurement & Loss ── */}
-            <InputSection icon={<IndianRupee className="w-3.5 h-3.5" />} title="Procurement Price & Wastage">
-              <FieldLabel>Rate</FieldLabel>
-              <div className="flex gap-2 mb-3">
-                <NumInput value={inp.procPrice} onChange={(v) => set("procPrice", v)} placeholder="18.80"
-                  alert={result.exceedsCap && hasData} />
-                <StyledSelect value={inp.procUnit} onChange={(v) => set("procUnit", v as Inputs["procUnit"])} options={["INR/kg", "INR/MT"]} />
-              </div>
-              
-              <FieldLabel>Estimated Loss / Wastage (%)</FieldLabel>
-              <NumInput value={inp.lossPct} onChange={(v) => set("lossPct", v)} placeholder="0.0%" />
-              
-              <AnimatePresence>
-                {inp.procPrice && (
-                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                    className="text-[11px] text-slate-400 mt-2 font-mono">
-                    Adjusted Rate: {fmtCurrency(result.procPerKg, currency, fxRate)}/kg
-                    <br />
-                    Total: <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalProcurement, currency, fxRate)}</span>
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </InputSection>
-
-            {/* ── 3. Freight preset & logistics ── */}
-            <InputSection icon={<Truck className="w-3.5 h-3.5" />} title="Freight / Logistics">
-              <div className="mb-3">
-                <FieldLabel>Freight Presets</FieldLabel>
-                <StyledSelect
-                  value={inp.freightPreset}
-                  onChange={(v) => set("freightPreset", v)}
-                  options={["Custom", "Mundra Port to Factory", "Kolkata Port to Warehouse", "Local Yard to Mill"]}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div>
-                  <FieldLabel>Delivery Mode</FieldLabel>
-                  <div className="flex rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
-                    {(["FOR", "Ex-Factory"] as const).map((m) => (
-                      <button key={m} onClick={() => set("freightMode", m)}
-                        disabled={inp.freightPreset !== "Custom"}
-                        className={`flex-1 text-[11px] font-bold py-[8px] transition-all disabled:opacity-70 disabled:cursor-not-allowed ${inp.freightMode === m ? "bg-[#0F172A] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                        {m}
-                      </button>
-                    ))}
+              {/* Left Column: Procurement & Freight */}
+              <div className="flex flex-col gap-3">
+                {/* ── 2. Procurement & Loss ── */}
+                <InputSection icon={<IndianRupee className="w-3.5 h-3.5" />} title="Procurement Price & Wastage">
+                  <FieldLabel>Rate</FieldLabel>
+                  <div className="flex gap-2 mb-3">
+                    <NumInput value={inp.procPrice} onChange={(v) => set("procPrice", v)} placeholder="18.80"
+                      alert={result.exceedsCap && hasData} />
+                    <StyledSelect value={inp.procUnit} onChange={(v) => set("procUnit", v as Inputs["procUnit"])} options={["INR/kg", "INR/MT"]} />
                   </div>
-                </div>
-                <div>
-                  <FieldLabel>Rate Basis</FieldLabel>
-                  <StyledSelect value={inp.freightRate} onChange={(v) => set("freightRate", v as Inputs["freightRate"])} options={["Per Ton", "Per kg", "Flat Rate"]} />
-                </div>
-              </div>
-              <FieldLabel>Amount</FieldLabel>
-              <NumInput value={inp.freight} onChange={(v) => set("freight", v)} placeholder="1800" alert={inp.freightPreset !== "Custom"} />
-              <AnimatePresence>
-                {inp.freight && (
-                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                    className="text-[11px] text-slate-400 mt-2 font-mono">
-                    {fmtCurrency(result.freightPerKg, currency, fxRate)}/kg · <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalFreight, currency, fxRate)}</span>
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </InputSection>
-
-            {/* ── 4. Packaging ── */}
-            <InputSection icon={<Package className="w-3.5 h-3.5" />} title="Packaging Charges"
-              badge={inp.packagingEnabled ? "Active" : undefined}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[12.5px] text-slate-600 font-medium">Include packaging cost</span>
-                <button onClick={() => set("packagingEnabled", !inp.packagingEnabled)}
-                  className="relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 cursor-pointer"
-                  style={{ background: inp.packagingEnabled ? "#10B981" : "#CBD5E1" }}>
-                  <motion.span animate={{ x: inp.packagingEnabled ? 22 : 2 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                    className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-md block animate-none" />
-                </button>
-              </div>
-              <AnimatePresence>
-                {inp.packagingEnabled && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }}
-                    className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
-                    <FieldLabel>Rate Basis</FieldLabel>
-                    <StyledSelect value={inp.packagingBasis} onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])} options={["Per Quintal", "Per 50kg bag"]} />
-                    <FieldLabel>Rate (INR)</FieldLabel>
-                    <NumInput value={inp.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
-                    {inp.packagingRate && (
-                      <p className="text-[11px] text-slate-400 font-mono">
-                        {fmtCurrency(result.packPerKg, currency, fxRate)}/kg · <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalPackaging, currency, fxRate)}</span>
-                      </p>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              {!inp.packagingEnabled && (
-                <p className="text-[11px] text-slate-300 font-mono">₹0.0000/kg · excluded from ledger</p>
-              )}
-            </InputSection>
-
-            {/* ── 5. Target Margin (Standard) / Target Price (Reverse) ── */}
-            <InputSection icon={<TrendingUp className="w-3.5 h-3.5" />} title={inp.mode === "reverse" ? "Target Price (Reverse)" : "Target Profit Margin"}>
-              {inp.mode === "reverse" ? (
-                <>
-                  <FieldLabel>Target Selling Price (INR/kg)</FieldLabel>
-                  <NumInput value={inp.targetSellingPrice} onChange={(v) => set("targetSellingPrice", v)} placeholder="22.00" />
-                  {inp.targetSellingPrice && result.subtotalPerKg > 0 && (
-                    <div className="mt-2.5 font-mono text-[11px]">
-                      <div className="flex justify-between font-semibold text-emerald-500 mb-1">
-                        <span>Calculated Margin:</span>
-                        <span>{fmtCurrency(result.marginPerKg, currency, fxRate)}/kg ({fmt(marginPct, 1)}%)</span>
-                      </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <motion.div animate={{ width: `${Math.min(Math.max(marginPct, 0), 100)}%` }}
-                          className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 0 ? "bg-emerald-500" : "bg-red-500"}`} />
-                      </div>
-                      <p className="text-slate-500 mt-1">Calculated net profit: {fmtCurrency(result.totalMargin, currency, fxRate)}</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <FieldLabel>Fixed Margin (INR/kg)</FieldLabel>
-                  <NumInput value={inp.targetMargin} onChange={(v) => set("targetMargin", v)} placeholder="1.40" />
+                  
+                  <FieldLabel>Estimated Loss / Wastage (%)</FieldLabel>
+                  <NumInput value={inp.lossPct} onChange={(v) => set("lossPct", v)} placeholder="0.0%" />
+                  
                   <AnimatePresence>
-                    {inp.targetMargin && result.subtotalPerKg > 0 && (
-                      <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                        className="mt-2.5 flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <motion.div animate={{ width: `${Math.min(marginPct, 100)}%` }}
-                            transition={{ duration: 0.4, ease: "easeOut" }}
-                            className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 7 ? "bg-emerald-500" : "bg-amber-400"}`} />
-                        </div>
-                        <span className="text-[11px] font-bold text-emerald-500 font-mono">{fmt(marginPct, 1)}%</span>
+                    {inp.procPrice && (
+                      <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        className="text-[11px] text-slate-400 mt-2 font-mono">
+                        Adjusted Rate: {fmtCurrency(result.procPerKg, currency, fxRate)}/kg
+                        <br />
+                        Total: <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalProcurement, currency, fxRate)}</span>
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </InputSection>
+
+                {/* ── 3. Freight preset & logistics ── */}
+                <InputSection icon={<Truck className="w-3.5 h-3.5" />} title="Freight / Logistics">
+                  <div className="mb-3">
+                    <FieldLabel>Freight Presets</FieldLabel>
+                    <StyledSelect
+                      value={inp.freightPreset}
+                      onChange={(v) => set("freightPreset", v)}
+                      options={["Custom", "Mundra Port to Factory", "Kolkata Port to Warehouse", "Local Yard to Mill"]}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div>
+                      <FieldLabel>Delivery Mode</FieldLabel>
+                      <div className="flex rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+                        {(["FOR", "Ex-Factory"] as const).map((m) => (
+                          <button key={m} onClick={() => set("freightMode", m)}
+                            disabled={inp.freightPreset !== "Custom"}
+                            className={`flex-1 text-[11px] font-bold py-[8px] transition-all disabled:opacity-70 disabled:cursor-not-allowed ${inp.freightMode === m ? "bg-[#0F172A] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <FieldLabel>Rate Basis</FieldLabel>
+                      <StyledSelect value={inp.freightRate} onChange={(v) => set("freightRate", v as Inputs["freightRate"])} options={["Per Ton", "Per kg", "Flat Rate"]} />
+                    </div>
+                  </div>
+                  <FieldLabel>Amount</FieldLabel>
+                  <NumInput value={inp.freight} onChange={(v) => set("freight", v)} placeholder="1800" alert={inp.freightPreset !== "Custom"} />
+                  <AnimatePresence>
+                    {inp.freight && (
+                      <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        className="text-[11px] text-slate-400 mt-2 font-mono">
+                        {fmtCurrency(result.freightPerKg, currency, fxRate)}/kg · <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalFreight, currency, fxRate)}</span>
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </InputSection>
+              </div>
+
+              {/* Right Column: Volume, Packaging, Margin, Cap */}
+              <div className="flex flex-col gap-3">
+                {/* ── 1. Volume ── */}
+                <InputSection icon={<Wheat className="w-3.5 h-3.5" />} title="Deal Volume">
+                  <FieldLabel>Quantity</FieldLabel>
+                  <div className="flex gap-2">
+                    <NumInput value={inp.volume} onChange={(v) => set("volume", v)} placeholder="100" />
+                    <StyledSelect value={inp.volumeUnit} onChange={(v) => set("volumeUnit", v as Inputs["volumeUnit"])} options={["MT", "kg", "Quintal"]} />
+                  </div>
+                  <AnimatePresence>
+                    {inp.volume && (
+                      <motion.p
+                        initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                        className="text-[11px] text-emerald-500 mt-2 font-mono font-semibold"
+                      >
+                        = {fmt(result.volumeKg, 0)} kg &nbsp;·&nbsp; {fmt(result.volumeMT, 3)} MT
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </InputSection>
+
+                {/* ── 4. Packaging ── */}
+                <InputSection icon={<Package className="w-3.5 h-3.5" />} title="Packaging Charges"
+                  badge={inp.packagingEnabled ? "Active" : undefined}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[12.5px] text-slate-600 font-medium">Include packaging cost</span>
+                    <button onClick={() => set("packagingEnabled", !inp.packagingEnabled)}
+                      className="relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 cursor-pointer"
+                      style={{ background: inp.packagingEnabled ? "#10B981" : "#CBD5E1" }}>
+                      <motion.span animate={{ x: inp.packagingEnabled ? 22 : 2 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-md block animate-none" />
+                    </button>
+                  </div>
+                  <AnimatePresence>
+                    {inp.packagingEnabled && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }}
+                        className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
+                        <FieldLabel>Rate Basis</FieldLabel>
+                        <StyledSelect value={inp.packagingBasis} onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])} options={["Per Quintal", "Per 50kg bag"]} />
+                        <FieldLabel>Rate (INR)</FieldLabel>
+                        <NumInput value={inp.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
+                        {inp.packagingRate && (
+                          <p className="text-[11px] text-slate-400 font-mono">
+                            {fmtCurrency(result.packPerKg, currency, fxRate)}/kg · <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalPackaging, currency, fxRate)}</span>
+                          </p>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  {inp.targetMargin && hasData && (
-                    <p className="text-[11px] text-emerald-500 mt-1.5 font-mono font-semibold">
-                      Net profit: {fmtCurrency(result.totalMargin, currency, fxRate)}
-                    </p>
+                  {!inp.packagingEnabled && (
+                    <p className="text-[11px] text-slate-300 font-mono">₹0.0000/kg · excluded from ledger</p>
                   )}
-                </>
-              )}
-            </InputSection>
+                </InputSection>
 
-            {/* ── 6. Buyer Cap ── */}
-            <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all duration-300 h-full flex flex-col
-              ${result.exceedsCap && hasData ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
-              <div className="px-4 pt-3.5 pb-1 flex items-center gap-2 border-b border-dashed border-slate-200 flex-shrink-0">
-                <AlertTriangle className={`w-3.5 h-3.5 ${result.exceedsCap && hasData ? "text-red-500" : "text-slate-300"}`} />
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Buyer Cap / Alert</span>
-              </div>
-              <div className="p-4 flex-1 flex flex-col justify-between">
-                <div>
-                  <FieldLabel>Max Selling Price (INR/kg)</FieldLabel>
-                  <NumInput value={inp.buyerCap} onChange={(v) => set("buyerCap", v)} placeholder="22.00" alert={result.exceedsCap && hasData} />
+                {/* ── 5. Target Margin (Standard) / Target Price (Reverse) ── */}
+                <InputSection icon={<TrendingUp className="w-3.5 h-3.5" />} title={inp.mode === "reverse" ? "Target Price (Reverse)" : "Target Profit Margin"}>
+                  {inp.mode === "reverse" ? (
+                    <>
+                      <FieldLabel>Target Selling Price (INR/kg)</FieldLabel>
+                      <NumInput value={inp.targetSellingPrice} onChange={(v) => set("targetSellingPrice", v)} placeholder="22.00" />
+                      {inp.targetSellingPrice && result.subtotalPerKg > 0 && (
+                        <div className="mt-2.5 font-mono text-[11px]">
+                          <div className="flex justify-between font-semibold text-emerald-500 mb-1">
+                            <span>Calculated Margin:</span>
+                            <span>{fmtCurrency(result.marginPerKg, currency, fxRate)}/kg ({fmt(marginPct, 1)}%)</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <motion.div animate={{ width: `${Math.min(Math.max(marginPct, 0), 100)}%` }}
+                              className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 0 ? "bg-emerald-500" : "bg-red-500"}`} />
+                          </div>
+                          <p className="text-slate-500 mt-1">Calculated net profit: {fmtCurrency(result.totalMargin, currency, fxRate)}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <FieldLabel>Fixed Margin (INR/kg)</FieldLabel>
+                      <NumInput value={inp.targetMargin} onChange={(v) => set("targetMargin", v)} placeholder="1.40" />
+                      <AnimatePresence>
+                        {inp.targetMargin && result.subtotalPerKg > 0 && (
+                          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                            className="mt-2.5 flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <motion.div animate={{ width: `${Math.min(marginPct, 100)}%` }}
+                                transition={{ duration: 0.4, ease: "easeOut" }}
+                                className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 7 ? "bg-emerald-500" : "bg-amber-400"}`} />
+                            </div>
+                            <span className="text-[11px] font-bold text-emerald-500 font-mono">{fmt(marginPct, 1)}%</span>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      {inp.targetMargin && hasData && (
+                        <p className="text-[11px] text-emerald-500 mt-1.5 font-mono font-semibold">
+                          Net profit: {fmtCurrency(result.totalMargin, currency, fxRate)}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </InputSection>
+
+                {/* ── 6. Buyer Cap ── */}
+                <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all duration-300 h-full flex flex-col
+                  ${result.exceedsCap && hasData ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
+                  <div className="px-4 pt-3.5 pb-1 flex items-center gap-2 border-b border-dashed border-slate-200 flex-shrink-0">
+                    <AlertTriangle className={`w-3.5 h-3.5 ${result.exceedsCap && hasData ? "text-red-500" : "text-slate-300"}`} />
+                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Buyer Cap / Alert</span>
+                  </div>
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <FieldLabel>Max Selling Price (INR/kg)</FieldLabel>
+                      <NumInput value={inp.buyerCap} onChange={(v) => set("buyerCap", v)} placeholder="22.00" alert={result.exceedsCap && hasData} />
+                    </div>
+                    <p className={`text-[11px] mt-1.5 ${result.exceedsCap && hasData ? "text-red-400 font-semibold" : "text-slate-400"}`}>
+                      {result.exceedsCap && hasData
+                        ? `${fmtCurrency(result.sellingPerKg - parseFloat(inp.buyerCap), currency, fxRate)}/kg over cap — deal at risk`
+                        : "Triggers red alert if selling price exceeds this."}
+                    </p>
+                  </div>
                 </div>
-                <p className={`text-[11px] mt-1.5 ${result.exceedsCap && hasData ? "text-red-400 font-semibold" : "text-slate-400"}`}>
-                  {result.exceedsCap && hasData
-                    ? `${fmtCurrency(result.sellingPerKg - parseFloat(inp.buyerCap), currency, fxRate)}/kg over cap — deal at risk`
-                    : "Triggers red alert if selling price exceeds this."}
-                </p>
               </div>
-            </div>
             </div>
           </aside>
 
