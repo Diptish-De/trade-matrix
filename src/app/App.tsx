@@ -561,7 +561,7 @@ export default function App() {
 
       {/* ── BODY ────────────────────────────────────────────────────────── */}
       <main className="max-w-[1400px] mx-auto px-5 py-5 print:py-0 print:px-0">
-        <div className="grid grid-cols-1 lg:grid-cols-[740px_1fr] gap-5 items-start print:grid-cols-1">
+        <div className="grid grid-cols-1 lg:grid-cols-[600px_1fr] gap-5 items-start print:grid-cols-1">
 
           {/* ════════════════════════════════════════════════════════════
               LEFT — INPUTS
