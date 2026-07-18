@@ -96,6 +96,7 @@ interface CalcResult {
   totalProcurement: number; totalFreight: number; totalPackaging: number;
   totalSubtotal: number; totalMargin: number; grandTotal: number;
   exceedsCap: boolean; marginPct: number;
+  flatRateNeedsVolume: boolean;
 }
 
 interface SavedDeal {
@@ -130,6 +131,8 @@ function calculate(inp: Inputs): CalcResult {
   else if (inp.freightRate === "Per kg") freightPerKg = rawFreight;
   else freightPerKg = volumeKg > 0 ? rawFreight / volumeKg : 0;
 
+  const flatRateNeedsVolume = inp.freightRate === "Flat Rate" && rawFreight > 0 && volumeKg === 0;
+
   const rawPack = parseFloat(inp.packagingRate) || 0;
   const packPerKg = inp.packagingEnabled ? (inp.packagingBasis === "Per Quintal" ? rawPack / 100 : rawPack / 50) : 0;
 
@@ -162,7 +165,8 @@ function calculate(inp: Inputs): CalcResult {
     volumeMT, volumeKg, baseProcPerKg, procPerKg, freightPerKg, packPerKg,
     subtotalPerKg, marginPerKg, sellingPerKg,
     totalProcurement, totalFreight, totalPackaging,
-    totalSubtotal, totalMargin, grandTotal, exceedsCap, marginPct
+    totalSubtotal, totalMargin, grandTotal, exceedsCap, marginPct,
+    flatRateNeedsVolume
   };
 }
 
@@ -301,6 +305,7 @@ export default function App() {
   const [currency, setCurrency] = useState<"INR" | "USD" | "EUR">("INR");
   const [liveRates, setLiveRates] = useState({ USD: 83.5, EUR: 91.0 });
   const [fxRate, setFxRate] = useState<number>(1.0);
+  const [fxSource, setFxSource] = useState<"live" | "manual">("manual");
   const [savedDeals, setSavedDeals] = useState<SavedDeal[]>([]);
 
   // Load saved deals on mount
@@ -327,9 +332,13 @@ export default function App() {
             USD: Number(usdToInr.toFixed(2)),
             EUR: Number(eurToInr.toFixed(2)),
           });
+          setFxSource("live");
         }
       })
-      .catch((err) => console.error("Error fetching exchange rates:", err));
+      .catch((err) => {
+        console.error("Error fetching exchange rates:", err);
+        setFxSource("manual");
+      });
   }, []);
 
   // Update Fx rates when currency or fetched rates change
@@ -375,7 +384,9 @@ export default function App() {
     const defaultName = `Deal ${fmt(result.volumeMT, 1)} MT Rice @ ₹${fmt(result.sellingPerKg, 2)}/kg`;
     const finalName = dealName.trim() || defaultName;
     const newDeal: SavedDeal = {
-      id: crypto.randomUUID(),
+      id: typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: finalName,
       timestamp: Date.now(),
       inputs: inp,
@@ -500,10 +511,21 @@ export default function App() {
               <input
                 type="number"
                 value={fxRate}
-                onChange={(e) => setFxRate(parseFloat(e.target.value) || 1)}
+                onChange={(e) => {
+                  setFxRate(parseFloat(e.target.value) || 1);
+                  setFxSource("manual");
+                }}
                 className="w-16 bg-slate-800 border border-slate-700 text-white rounded px-1.5 py-0.5 text-right focus:outline-none focus:border-emerald-500"
               />
               <span>INR</span>
+              <span className={`text-[9px] font-bold rounded-full px-1.5 py-0.5 uppercase tracking-wide flex items-center gap-1
+                ${fxSource === "live" 
+                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
+                  : "bg-slate-800 text-slate-400 border border-slate-750"}`}
+              >
+                {fxSource === "live" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                {fxSource}
+              </span>
             </div>
           )}
 
@@ -599,7 +621,9 @@ export default function App() {
 
             <div className="flex items-center justify-between px-0.5">
               <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Deal Parameters</span>
-              <span className="text-[10.5px] text-slate-400 font-mono">All values adjusted in {currency}</span>
+              <span className="text-[10.5px] text-slate-400 font-mono">
+                Inputs in INR · displayed in {currency}
+              </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
@@ -673,6 +697,16 @@ export default function App() {
                     placeholder="1800"
                     locked={inp.freightPreset !== "Custom"}
                   />
+                  {result.flatRateNeedsVolume && (
+                    <p className="text-[11px] text-slate-450 mt-1 select-none font-medium">
+                      Enter deal volume to calculate flat-rate freight per kg
+                    </p>
+                  )}
+                  {result.freightPerKg > result.procPerKg * 2 && result.freightPerKg > 0 && result.procPerKg > 0 && (
+                    <p className="text-[11px] text-slate-450 mt-1 select-none font-medium">
+                      Freight looks unusually high relative to procurement cost — check you've selected the right rate basis (Per Ton vs Per kg).
+                    </p>
+                  )}
                   <AnimatePresence>
                     {inp.freight && (
                       <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -748,15 +782,20 @@ export default function App() {
                       <NumInput value={inp.targetSellingPrice} onChange={(v) => set("targetSellingPrice", v)} placeholder="22.00" />
                       {inp.targetSellingPrice && result.subtotalPerKg > 0 && (
                         <div className="mt-2.5 font-mono text-[11px]">
-                          <div className="flex justify-between font-semibold text-emerald-500 mb-1">
+                          <div className={`flex justify-between font-semibold mb-1 ${result.marginPerKg < 0 ? "text-red-500" : "text-emerald-500"}`}>
                             <span>Calculated Margin:</span>
                             <span>{fmtCurrency(result.marginPerKg, currency, fxRate)}/kg ({fmt(marginPct, 1)}%)</span>
                           </div>
                           <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <motion.div animate={{ width: `${Math.min(Math.max(marginPct, 0), 100)}%` }}
-                              className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 0 ? "bg-emerald-500" : "bg-red-500"}`} />
+                              className={`h-full rounded-full ${marginPct < 0 ? "bg-red-500" : marginPct > 15 ? "bg-emerald-400" : "bg-emerald-500"}`} />
                           </div>
                           <p className="text-slate-500 mt-1">Calculated net profit: {fmtCurrency(result.totalMargin, currency, fxRate)}</p>
+                          {result.marginPerKg < 0 && (
+                            <p className="text-red-500 mt-1 font-semibold">
+                              This price is below cost — the deal loses money at this target.
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
@@ -769,9 +808,9 @@ export default function App() {
                           <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                             className="mt-2.5 flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <motion.div animate={{ width: `${Math.min(marginPct, 100)}%` }}
+                              <motion.div animate={{ width: `${Math.min(Math.max(marginPct, 0), 100)}%` }}
                                 transition={{ duration: 0.4, ease: "easeOut" }}
-                                className={`h-full rounded-full ${marginPct > 15 ? "bg-emerald-400" : marginPct > 7 ? "bg-emerald-500" : "bg-amber-400"}`} />
+                                className={`h-full rounded-full ${marginPct < 0 ? "bg-red-500" : marginPct > 15 ? "bg-emerald-400" : marginPct > 7 ? "bg-emerald-500" : "bg-amber-400"}`} />
                             </div>
                             <span className="text-[11px] font-bold text-emerald-500 font-mono">{fmt(marginPct, 1)}%</span>
                           </motion.div>
