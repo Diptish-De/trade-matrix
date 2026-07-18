@@ -300,7 +300,8 @@ export default function App() {
   const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
   const [dealName, setDealName] = useState("");
   const [currency, setCurrency] = useState<"INR" | "USD" | "EUR">("INR");
-  const [fxRate, setFxRate] = useState<number>(83.0);
+  const [liveRates, setLiveRates] = useState({ USD: 83.5, EUR: 91.0 });
+  const [fxRate, setFxRate] = useState<number>(1.0);
   const [savedDeals, setSavedDeals] = useState<SavedDeal[]>([]);
 
   // Load saved deals on mount
@@ -311,12 +312,29 @@ export default function App() {
     }
   }, []);
 
-  // Update Fx rates default
+  // Fetch live exchange rates on mount
   useEffect(() => {
-    if (currency === "USD") setFxRate(83.0);
-    else if (currency === "EUR") setFxRate(90.0);
+    fetch("https://open.er-api.com/v6/latest/USD")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.rates && data.rates.INR) {
+          const usdToInr = data.rates.INR;
+          const eurToInr = data.rates.INR / (data.rates.EUR || 0.92);
+          setLiveRates({
+            USD: Number(usdToInr.toFixed(2)),
+            EUR: Number(eurToInr.toFixed(2)),
+          });
+        }
+      })
+      .catch((err) => console.error("Error fetching exchange rates:", err));
+  }, []);
+
+  // Update Fx rates when currency or fetched rates change
+  useEffect(() => {
+    if (currency === "USD") setFxRate(liveRates.USD);
+    else if (currency === "EUR") setFxRate(liveRates.EUR);
     else setFxRate(1.0);
-  }, [currency]);
+  }, [currency, liveRates]);
 
   function set<K extends keyof Inputs>(k: K, v: Inputs[K]) {
     setInp((p) => {
