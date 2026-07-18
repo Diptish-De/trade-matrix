@@ -36,16 +36,12 @@ function fmtCurrencyShort(val: number, cur: "INR" | "USD" | "EUR", rate: number)
   const converted = val / rate;
   if (!isFinite(converted) || isNaN(converted) || converted === 0) return "—";
   const symbol = cur === "INR" ? "₹" : cur === "USD" ? "$" : "€";
-  
-  if (cur === "INR") {
-    if (converted >= 1e7) return `${symbol}${fmt(converted / 1e7, 2)} Cr`;
-    if (converted >= 1e5) return `${symbol}${fmt(converted / 1e5, 2)} L`;
-    return `${symbol}${fmt(converted, 0)}`;
-  }
-  
-  if (converted >= 1e6) return `${symbol}${fmt(converted / 1e6, 2)} M`;
-  if (converted >= 1e3) return `${symbol}${fmt(converted / 1e3, 1)} K`;
-  return `${symbol}${fmt(converted, 0)}`;
+
+  if (cur === "INR" && converted >= 10000000) return `${symbol}${fmt(converted / 10000000, 2)} Cr`;
+  if (cur === "INR" && converted >= 100000) return `${symbol}${fmt(converted / 100000, 2)} L`;
+  if (cur !== "INR" && converted >= 1000000) return `${symbol}${fmt(converted / 1000000, 2)} M`;
+  if (converted >= 1000) return `${symbol}${fmt(converted / 1000, 1)} K`;
+  return symbol + fmt(converted, 2);
 }
 
 // animated number that ticks up/down
@@ -125,7 +121,8 @@ function calculate(inp: Inputs): CalcResult {
   
   // Adjust base procurement by wastage/loss factor
   const lossPctVal = parseFloat(inp.lossPct) || 0;
-  const procPerKg = lossPctVal > 0 ? baseProcPerKg / (1 - lossPctVal / 100) : baseProcPerKg;
+  const clampedLoss = Math.min(Math.max(lossPctVal, 0), 99.9);
+  const procPerKg = baseProcPerKg / (1 - clampedLoss / 100);
 
   const rawFreight = parseFloat(inp.freight) || 0;
   let freightPerKg = 0;
@@ -197,8 +194,8 @@ function StyledSelect({ value, onChange, options }: {
   );
 }
 
-function NumInput({ value, onChange, placeholder = "0.00", alert = false }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; alert?: boolean;
+function NumInput({ value, onChange, placeholder = "0.00", alert = false, locked = false }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; alert?: boolean; locked?: boolean;
 }) {
   return (
     <input
@@ -209,6 +206,8 @@ function NumInput({ value, onChange, placeholder = "0.00", alert = false }: {
       className={`w-full text-[15px] font-semibold rounded-md px-3 py-[9px] focus:outline-none focus:ring-2 transition-all placeholder:text-slate-300 placeholder:font-normal
         ${alert
           ? "bg-red-50 border border-red-300 ring-1 ring-red-200 text-red-700 focus:ring-red-300"
+          : locked
+          ? "bg-slate-50 border border-slate-200 text-slate-500 cursor-not-allowed select-none"
           : "bg-white border border-slate-200 focus:ring-emerald-400/50 focus:border-emerald-400 text-slate-800 hover:border-slate-300"
         }`}
       style={{ fontFamily: "JetBrains Mono, monospace" }}
@@ -306,9 +305,13 @@ export default function App() {
 
   // Load saved deals on mount
   useEffect(() => {
-    const deals = localStorage.getItem("trade_matrix_deals");
-    if (deals) {
-      setSavedDeals(JSON.parse(deals));
+    try {
+      const deals = localStorage.getItem("trade_matrix_deals");
+      if (deals) {
+        setSavedDeals(JSON.parse(deals));
+      }
+    } catch (e) {
+      console.warn("Failed to load saved deals from localStorage:", e);
     }
   }, []);
 
@@ -379,13 +382,17 @@ export default function App() {
     };
     const updated = [newDeal, ...savedDeals];
     setSavedDeals(updated);
-    localStorage.setItem("trade_matrix_deals", JSON.stringify(updated));
+    try {
+      localStorage.setItem("trade_matrix_deals", JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to save deal to localStorage:", e);
+    }
     
     setSaveState("saved");
     setDealName("");
     setTimeout(() => setSaveState("idle"), 2000);
 
-    if (!result.exceedsCap && hasData) {
+    if (!result.exceedsCap && hasData && result.marginPerKg > 0) {
       triggerConfetti();
     }
   }
@@ -393,7 +400,11 @@ export default function App() {
   function deleteDeal(id: string) {
     const updated = savedDeals.filter(d => d.id !== id);
     setSavedDeals(updated);
-    localStorage.setItem("trade_matrix_deals", JSON.stringify(updated));
+    try {
+      localStorage.setItem("trade_matrix_deals", JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to delete deal from localStorage:", e);
+    }
   }
 
   function exportCSV() {
@@ -605,6 +616,11 @@ export default function App() {
                   
                   <FieldLabel>Estimated Loss / Wastage (%)</FieldLabel>
                   <NumInput value={inp.lossPct} onChange={(v) => set("lossPct", v)} placeholder="0.0%" />
+                  {parseFloat(inp.lossPct) >= 100 && (
+                    <p className="text-[10px] text-red-500 font-semibold mt-1">
+                      Wastage capped at 99.9% (100% loss is mathematically infinite)
+                    </p>
+                  )}
                   
                   <AnimatePresence>
                     {inp.procPrice && (
@@ -648,7 +664,15 @@ export default function App() {
                     </div>
                   </div>
                   <FieldLabel>Amount</FieldLabel>
-                  <NumInput value={inp.freight} onChange={(v) => set("freight", v)} placeholder="1800" alert={inp.freightPreset !== "Custom"} />
+                  <NumInput
+                    value={inp.freight}
+                    onChange={(v) => {
+                      set("freight", v);
+                      if (inp.freightPreset !== "Custom") set("freightPreset", "Custom");
+                    }}
+                    placeholder="1800"
+                    locked={inp.freightPreset !== "Custom"}
+                  />
                   <AnimatePresence>
                     {inp.freight && (
                       <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
