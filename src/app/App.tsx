@@ -251,11 +251,11 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function StyledSelect({ value, onChange, options }: {
-  value: string; onChange: (v: string) => void; options: string[];
+function StyledSelect({ value, onChange, options, className = "" }: {
+  value: string; onChange: (v: string) => void; options: string[]; className?: string;
 }) {
   return (
-    <div className="relative flex-shrink-0">
+    <div className={`relative flex-shrink-0 w-fit ${className}`}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
