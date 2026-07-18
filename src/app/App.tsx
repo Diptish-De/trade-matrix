@@ -561,7 +561,7 @@ export default function App() {
 
       {/* ── BODY ────────────────────────────────────────────────────────── */}
       <main className="max-w-[1400px] mx-auto px-5 py-5 print:py-0 print:px-0">
-        <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 items-start print:grid-cols-1">
+        <div className="grid grid-cols-1 lg:grid-cols-[740px_1fr] gap-5 items-start print:grid-cols-1">
 
           {/* ════════════════════════════════════════════════════════════
               LEFT — INPUTS
@@ -590,6 +590,8 @@ export default function App() {
               <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Deal Parameters</span>
               <span className="text-[10.5px] text-slate-400 font-mono">All values adjusted in {currency}</span>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
 
             {/* ── 1. Volume ── */}
             <InputSection icon={<Wheat className="w-3.5 h-3.5" />} title="Deal Volume">
@@ -772,6 +774,7 @@ export default function App() {
                     : "Triggers red alert if selling price exceeds this."}
                 </p>
               </div>
+            </div>
             </div>
           </aside>
 
