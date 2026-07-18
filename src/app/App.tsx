@@ -76,14 +76,35 @@ function AnimatedNumber({ value, prefix = "", suffix = "", decimals = 2 }: {
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
+interface FreightLeg {
+  id: string;
+  label: string;
+  preset: string;
+  mode: "FOR" | "Ex-Factory";
+  rate: "Per Ton" | "Per kg" | "Flat Rate";
+  amount: string;
+}
+
 interface Inputs {
   mode: "standard" | "reverse";
-  volume: string; volumeUnit: "MT" | "kg" | "Quintal";
-  procPrice: string; procUnit: "INR/kg" | "INR/MT";
+  commodity: string;
+  customCommodity: string;
+  volume: string;
+  volumeUnit: "MT" | "kg" | "Quintal" | "Custom";
+  customUnitLabel: string;
+  customUnitKgFactor: string;
+  procPrice: string;
+  procUnit: "INR/kg" | "INR/MT";
   lossPct: string; // wastage/moisture loss factor
-  freightPreset: string;
-  freight: string; freightMode: "FOR" | "Ex-Factory"; freightRate: "Per Ton" | "Per kg" | "Flat Rate";
-  packagingEnabled: boolean; packagingRate: string; packagingBasis: "Per Quintal" | "Per 50kg bag";
+  freightLegs: FreightLeg[];
+  packagingEnabled: boolean;
+  packagingRate: string;
+  packagingBasis: "Per Quintal" | "Per 50kg bag" | "Custom";
+  packagingCustomDivisor: string;
+  specAdjEnabled: boolean;
+  specAdjMode: "premium" | "discount";
+  specAdjBasis: "percent" | "flat";
+  specAdjAmount: string;
   targetMargin: string;
   targetSellingPrice: string;
   buyerCap: string;
@@ -91,16 +112,18 @@ interface Inputs {
 
 interface CalcResult {
   volumeMT: number; volumeKg: number;
-  baseProcPerKg: number; procPerKg: number; freightPerKg: number; packPerKg: number;
+  baseProcPerKg: number; specAdjPerKg: number; procPerKg: number; freightPerKg: number; packPerKg: number;
   subtotalPerKg: number; marginPerKg: number; sellingPerKg: number;
-  totalProcurement: number; totalFreight: number; totalPackaging: number;
+  totalProcurement: number; totalFreight: number; totalPackaging: number; totalSpecAdjustment: number;
   totalSubtotal: number; totalMargin: number; grandTotal: number;
   exceedsCap: boolean; marginPct: number;
   flatRateNeedsVolume: boolean;
+  freightLegCosts: { id: string; perKg: number; total: number }[];
 }
 
 interface SavedDeal {
   id: string;
+  refId: string;
   name: string;
   timestamp: number;
   inputs: Inputs;
@@ -112,29 +135,76 @@ const FREIGHT_PRESETS: { [key: string]: { mode: "FOR" | "Ex-Factory"; rate: "Per
   "Local Yard to Mill": { mode: "Ex-Factory", rate: "Flat Rate", amount: "800" },
 };
 
+function getCommodityIcon(comm: string, className = "w-3.5 h-3.5") {
+  const c = comm.toLowerCase();
+  if (c === "rice" || c === "wheat" || c === "pulses" || c === "sugar") {
+    return <Wheat className={className} />;
+  }
+  return <Package className={className} />;
+}
+
 function calculate(inp: Inputs): CalcResult {
   const vol = parseFloat(inp.volume) || 0;
-  const volumeKg = inp.volumeUnit === "MT" ? vol * 1000 : inp.volumeUnit === "Quintal" ? vol * 100 : vol;
+  let volumeKg = 0;
+  if (inp.volumeUnit === "MT") volumeKg = vol * 1000;
+  else if (inp.volumeUnit === "Quintal") volumeKg = vol * 100;
+  else if (inp.volumeUnit === "Custom") {
+    const factor = parseFloat(inp.customUnitKgFactor) || 1;
+    volumeKg = vol * factor;
+  } else {
+    volumeKg = vol;
+  }
   const volumeMT = volumeKg / 1000;
   
   const rawProc = parseFloat(inp.procPrice) || 0;
   const baseProcPerKg = inp.procUnit === "INR/MT" ? rawProc / 1000 : rawProc;
   
+  let adjustedBaseRate = baseProcPerKg;
+  let specAdjPerKg = 0;
+  if (inp.specAdjEnabled) {
+    const amt = parseFloat(inp.specAdjAmount) || 0;
+    const delta = inp.specAdjBasis === "percent" ? baseProcPerKg * (amt / 100) : amt;
+    specAdjPerKg = inp.specAdjMode === "premium" ? delta : -delta;
+    adjustedBaseRate = baseProcPerKg + specAdjPerKg;
+  }
+  
   // Adjust base procurement by wastage/loss factor
   const lossPctVal = parseFloat(inp.lossPct) || 0;
   const clampedLoss = Math.min(Math.max(lossPctVal, 0), 99.9);
-  const procPerKg = baseProcPerKg / (1 - clampedLoss / 100);
+  const procPerKg = adjustedBaseRate / (1 - clampedLoss / 100);
 
-  const rawFreight = parseFloat(inp.freight) || 0;
   let freightPerKg = 0;
-  if (inp.freightRate === "Per Ton") freightPerKg = rawFreight / 1000;
-  else if (inp.freightRate === "Per kg") freightPerKg = rawFreight;
-  else freightPerKg = volumeKg > 0 ? rawFreight / volumeKg : 0;
-
-  const flatRateNeedsVolume = inp.freightRate === "Flat Rate" && rawFreight > 0 && volumeKg === 0;
+  let flatRateNeedsVolume = false;
+  const freightLegCosts = (inp.freightLegs || []).map((leg) => {
+    const rawAmt = parseFloat(leg.amount) || 0;
+    let legPerKg = 0;
+    if (leg.rate === "Per Ton") legPerKg = rawAmt / 1000;
+    else if (leg.rate === "Per kg") legPerKg = rawAmt;
+    else legPerKg = volumeKg > 0 ? rawAmt / volumeKg : 0;
+    
+    if (leg.rate === "Flat Rate" && rawAmt > 0 && volumeKg === 0) {
+      flatRateNeedsVolume = true;
+    }
+    
+    return {
+      id: leg.id,
+      perKg: legPerKg,
+      total: legPerKg * volumeKg,
+    };
+  });
+  
+  freightPerKg = freightLegCosts.reduce((acc, curr) => acc + curr.perKg, 0);
 
   const rawPack = parseFloat(inp.packagingRate) || 0;
-  const packPerKg = inp.packagingEnabled ? (inp.packagingBasis === "Per Quintal" ? rawPack / 100 : rawPack / 50) : 0;
+  let packPerKg = 0;
+  if (inp.packagingEnabled) {
+    if (inp.packagingBasis === "Per Quintal") packPerKg = rawPack / 100;
+    else if (inp.packagingBasis === "Per 50kg bag") packPerKg = rawPack / 50;
+    else if (inp.packagingBasis === "Custom") {
+      const div = parseFloat(inp.packagingCustomDivisor) || 1;
+      packPerKg = rawPack / div;
+    }
+  }
 
   const subtotalPerKg = procPerKg + freightPerKg + packPerKg;
   
@@ -153,6 +223,7 @@ function calculate(inp: Inputs): CalcResult {
   const totalProcurement = procPerKg * volumeKg;
   const totalFreight = freightPerKg * volumeKg;
   const totalPackaging = packPerKg * volumeKg;
+  const totalSpecAdjustment = specAdjPerKg * volumeKg;
   const totalSubtotal = subtotalPerKg * volumeKg;
   const totalMargin = marginPerKg * volumeKg;
   const grandTotal = sellingPerKg * volumeKg;
@@ -162,11 +233,11 @@ function calculate(inp: Inputs): CalcResult {
   const marginPct = subtotalPerKg > 0 ? (marginPerKg / subtotalPerKg) * 100 : 0;
 
   return {
-    volumeMT, volumeKg, baseProcPerKg, procPerKg, freightPerKg, packPerKg,
+    volumeMT, volumeKg, baseProcPerKg, specAdjPerKg, procPerKg, freightPerKg, packPerKg,
     subtotalPerKg, marginPerKg, sellingPerKg,
-    totalProcurement, totalFreight, totalPackaging,
+    totalProcurement, totalFreight, totalPackaging, totalSpecAdjustment,
     totalSubtotal, totalMargin, grandTotal, exceedsCap, marginPct,
-    flatRateNeedsVolume
+    flatRateNeedsVolume, freightLegCosts
   };
 }
 
@@ -276,23 +347,37 @@ function KPITile({ label, value, sub, variant = "default" }: {
 
 const EMPTY: Inputs = {
   mode: "standard",
+  commodity: "Rice",
+  customCommodity: "",
   volume: "", volumeUnit: "MT",
+  customUnitLabel: "bag",
+  customUnitKgFactor: "50",
   procPrice: "", procUnit: "INR/kg",
   lossPct: "",
-  freightPreset: "Custom",
-  freight: "", freightMode: "FOR", freightRate: "Per Ton",
+  freightLegs: [
+    { id: "leg-1", label: "Primary Route", preset: "Custom", mode: "FOR", rate: "Per Ton", amount: "" }
+  ],
   packagingEnabled: false, packagingRate: "", packagingBasis: "Per Quintal",
+  packagingCustomDivisor: "100",
+  specAdjEnabled: false, specAdjMode: "premium", specAdjBasis: "percent", specAdjAmount: "",
   targetMargin: "", targetSellingPrice: "", buyerCap: "",
 };
 
 const DEMO: Inputs = {
   mode: "standard",
+  commodity: "Rice",
+  customCommodity: "",
   volume: "100", volumeUnit: "MT",
+  customUnitLabel: "bag",
+  customUnitKgFactor: "50",
   procPrice: "18.80", procUnit: "INR/kg",
   lossPct: "2",
-  freightPreset: "Custom",
-  freight: "1800", freightMode: "FOR", freightRate: "Per Ton",
+  freightLegs: [
+    { id: "leg-1", label: "Mundra Port to Factory", preset: "Mundra Port to Factory", mode: "FOR", rate: "Per Ton", amount: "1800" }
+  ],
   packagingEnabled: true, packagingRate: "120", packagingBasis: "Per Quintal",
+  packagingCustomDivisor: "100",
+  specAdjEnabled: false, specAdjMode: "premium", specAdjBasis: "percent", specAdjAmount: "",
   targetMargin: "1.40", targetSellingPrice: "", buyerCap: "22",
 };
 
@@ -307,6 +392,22 @@ export default function App() {
   const [fxRate, setFxRate] = useState<number>(1.0);
   const [fxSource, setFxSource] = useState<"live" | "manual">("manual");
   const [savedDeals, setSavedDeals] = useState<SavedDeal[]>([]);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  const currentRefId = `BBE-${new Date().getFullYear()}-${String(savedDeals.length + 1).padStart(4, "0")}`;
+
+  function toggleCompare(id: string) {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((i) => i !== id);
+      }
+      const next = [...prev, id];
+      if (next.length > 3) {
+        next.shift();
+      }
+      return next;
+    });
+  }
 
   // Load saved deals on mount
   useEffect(() => {
@@ -348,20 +449,25 @@ export default function App() {
     else setFxRate(1.0);
   }, [currency, liveRates]);
 
-  function set<K extends keyof Inputs>(k: K, v: Inputs[K]) {
+    function set<K extends keyof Inputs>(k: K, v: Inputs[K]) {
+    setInp((p) => ({ ...p, [k]: v }));
+  }
+
+  function updateFreightLeg(index: number, key: keyof FreightLeg, value: string) {
     setInp((p) => {
-      const next = { ...p, [k]: v };
+      const nextLegs = [...p.freightLegs];
+      const leg = { ...nextLegs[index], [key]: value };
       
-      // Auto-fill values on freight preset changes
-      if (k === "freightPreset" && v !== "Custom") {
-        const preset = FREIGHT_PRESETS[v as string];
+      if (key === "preset" && value !== "Custom") {
+        const preset = FREIGHT_PRESETS[value];
         if (preset) {
-          next.freightMode = preset.mode;
-          next.freightRate = preset.rate;
-          next.freight = preset.amount;
+          leg.mode = preset.mode;
+          leg.rate = preset.rate;
+          leg.amount = preset.amount;
         }
       }
-      return next;
+      nextLegs[index] = leg;
+      return { ...p, freightLegs: nextLegs };
     });
   }
 
@@ -369,6 +475,22 @@ export default function App() {
   const demoResult = useMemo(() => calculate(DEMO), []);
   const hasData = parseFloat(inp.volume) > 0 && parseFloat(inp.procPrice) > 0;
   const marginPct = result.marginPct;
+
+  const sensitivityOffsets = [-0.1, -0.05, 0, 0.05, 0.1];
+  const sensitivityData = useMemo(() => {
+    return sensitivityOffsets.map((offset) => {
+      const rawProc = parseFloat(inp.procPrice) || 0;
+      const modifiedProcPrice = (rawProc * (1 + offset)).toFixed(2);
+      const tempInp = { ...inp, procPrice: modifiedProcPrice };
+      const tempRes = calculate(tempInp);
+      return {
+        labelStr: offset === 0 ? "Current" : (offset > 0 ? `+${(offset * 100).toFixed(0)}%` : `${(offset * 100).toFixed(0)}%`),
+        procPrice: modifiedProcPrice,
+        marginPerKg: tempRes.marginPerKg,
+        marginPct: tempRes.marginPct,
+      };
+    });
+  }, [inp]);
 
   function triggerConfetti() {
     import("canvas-confetti").then((confetti) => {
@@ -381,12 +503,15 @@ export default function App() {
   }
 
   function handleSave() {
-    const defaultName = `Deal ${fmt(result.volumeMT, 1)} MT Rice @ ₹${fmt(result.sellingPerKg, 2)}/kg`;
+    const commName = inp.commodity === "Other" ? inp.customCommodity : inp.commodity;
+    const defaultName = `${commName} ${fmt(result.volumeMT, 1)} MT @ ₹${fmt(result.sellingPerKg, 2)}/kg`;
     const finalName = dealName.trim() || defaultName;
-    const newDeal: SavedDeal = {
+    const refId = currentRefId;
+    const newDeal = {
       id: typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      refId,
       name: finalName,
       timestamp: Date.now(),
       inputs: inp,
@@ -419,15 +544,36 @@ export default function App() {
   }
 
   function exportCSV() {
-    const headers = ["Component", "Unit Basis", `Rate/kg (${currency})`, `Total (${currency})`];
+    const headers = ["Reference ID", "Component", "Unit Basis", `Rate/kg (${currency})`, `Total (${currency})`];
+    const commName = inp.commodity === "Other" ? inp.customCommodity : inp.commodity;
+    const refId = `BBE-Current`;
+    
     const rows = [
-      ["Rice Procurement (wastage adjusted)", inp.procUnit, (result.procPerKg / fxRate).toFixed(4), (result.totalProcurement / fxRate).toFixed(2)],
-      ["Freight / Logistics", inp.freightRate, (result.freightPerKg / fxRate).toFixed(4), (result.totalFreight / fxRate).toFixed(2)],
-      ["Packaging", inp.packagingEnabled ? inp.packagingBasis : "OFF", (result.packPerKg / fxRate).toFixed(4), (result.totalPackaging / fxRate).toFixed(2)],
-      ["Subtotal (Cost before Profit)", "—", (result.subtotalPerKg / fxRate).toFixed(4), (result.totalSubtotal / fxRate).toFixed(2)],
-      ["Net Profit Margin", "INR/kg", (result.marginPerKg / fxRate).toFixed(4), (result.totalMargin / fxRate).toFixed(2)],
-      ["Grand Total / Selling Price", "INR/kg", (result.sellingPerKg / fxRate).toFixed(4), (result.grandTotal / fxRate).toFixed(2)]
+      [refId, `${commName} Procurement (wastage adjusted)`, inp.procUnit, (result.procPerKg / fxRate).toFixed(4), (result.totalProcurement / fxRate).toFixed(2)]
     ];
+    
+    if (inp.specAdjEnabled) {
+      const label = `Quality/Spec Adjustment (${inp.specAdjMode === "premium" ? "Premium" : "Discount"})`;
+      const basis = inp.specAdjBasis === "percent" ? "% of proc" : "Flat";
+      rows.push([refId, label, basis, (result.specAdjPerKg / fxRate).toFixed(4), (result.totalSpecAdjustment / fxRate).toFixed(2)]);
+    }
+    
+    inp.freightLegs.forEach((leg, index) => {
+      rows.push([
+        refId,
+        `Freight / Logistics — ${leg.label || `Leg ${index + 1}`}`,
+        leg.rate,
+        ((result.freightLegCosts[index]?.perKg || 0) / fxRate).toFixed(4),
+        ((result.freightLegCosts[index]?.total || 0) / fxRate).toFixed(2)
+      ]);
+    });
+    
+    rows.push(
+      [refId, "Packaging", inp.packagingEnabled ? inp.packagingBasis : "OFF", (result.packPerKg / fxRate).toFixed(4), (result.totalPackaging / fxRate).toFixed(2)],
+      [refId, "Subtotal (Cost before Profit)", "—", (result.subtotalPerKg / fxRate).toFixed(4), (result.totalSubtotal / fxRate).toFixed(2)],
+      [refId, "Net Profit Margin", inp.mode === "reverse" ? "Calculated" : "Fixed", (result.marginPerKg / fxRate).toFixed(4), (result.totalMargin / fxRate).toFixed(2)],
+      [refId, "Grand Total / Selling Price", "—", (result.sellingPerKg / fxRate).toFixed(4), (result.grandTotal / fxRate).toFixed(2)]
+    );
     
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.map(val => `"${val}"`).join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -658,75 +804,222 @@ export default function App() {
                   </AnimatePresence>
                 </InputSection>
 
+                                {/* ── Quality / Spec Adjustment ── */}
+                <InputSection icon={<Settings2 className="w-3.5 h-3.5" />} title="Quality / Spec Adjustment"
+                  badge={inp.specAdjEnabled ? "Active" : undefined}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[12.5px] text-slate-600 font-medium">Enable adjustment</span>
+                    <button onClick={() => set("specAdjEnabled", !inp.specAdjEnabled)}
+                      className="relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0 cursor-pointer"
+                      style={{ background: inp.specAdjEnabled ? "#10B981" : "#CBD5E1" }}>
+                      <motion.span animate={{ x: inp.specAdjEnabled ? 22 : 2 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-md block animate-none" />
+                    </button>
+                  </div>
+                  <AnimatePresence>
+                    {inp.specAdjEnabled && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }}
+                        className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <FieldLabel>Mode</FieldLabel>
+                            <StyledSelect value={inp.specAdjMode} onChange={(v) => set("specAdjMode", v as Inputs["specAdjMode"])} options={["premium", "discount"]} />
+                          </div>
+                          <div>
+                            <FieldLabel>Basis</FieldLabel>
+                            <StyledSelect value={inp.specAdjBasis} onChange={(v) => set("specAdjBasis", v as Inputs["specAdjBasis"])} options={["percent", "flat"]} />
+                          </div>
+                        </div>
+                        <FieldLabel>Amount</FieldLabel>
+                        <NumInput value={inp.specAdjAmount} onChange={(v) => set("specAdjAmount", v)} placeholder="e.g. 2.50 or 5%" />
+                        {inp.specAdjAmount && (
+                          <p className="text-[11px] text-slate-400 font-mono">
+                            Adj: {inp.specAdjMode === "premium" ? "+" : "-"}{fmtCurrency(result.specAdjPerKg, currency, fxRate)}/kg
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </InputSection>
+
                 {/* ── 3. Freight preset & logistics ── */}
                 <InputSection icon={<Truck className="w-3.5 h-3.5" />} title="Freight / Logistics">
-                  <div className="mb-3">
-                    <FieldLabel>Freight Presets</FieldLabel>
-                    <StyledSelect
-                      value={inp.freightPreset}
-                      onChange={(v) => set("freightPreset", v)}
-                      options={["Custom", "Mundra Port to Factory", "Kolkata Port to Warehouse", "Local Yard to Mill"]}
-                    />
+                  <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
+                    {(inp.freightLegs || []).map((leg, index) => {
+                      const legCost = result.freightLegCosts[index];
+                      return (
+                        <div key={leg.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                              Leg #{index + 1}
+                            </span>
+                            {inp.freightLegs.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  const updated = inp.freightLegs.filter((l) => l.id !== leg.id);
+                                  set("freightLegs", updated);
+                                }}
+                                className="text-red-500 hover:text-red-700 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Remove
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="mb-2">
+                            <FieldLabel>Leg Name</FieldLabel>
+                            <input
+                              type="text"
+                              value={leg.label}
+                              onChange={(e) => updateFreightLeg(index, "label", e.target.value)}
+                              placeholder={`e.g. Leg ${index + 1}`}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400"
+                            />
+                          </div>
+
+                          <div className="mb-2">
+                            <FieldLabel>Freight Preset</FieldLabel>
+                            <StyledSelect
+                              value={leg.preset}
+                              onChange={(v) => updateFreightLeg(index, "preset", v)}
+                              options={["Custom", "Mundra Port to Factory", "Kolkata Port to Warehouse", "Local Yard to Mill"]}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 mb-2">
+                            <div>
+                              <FieldLabel>Delivery Mode</FieldLabel>
+                              <div className="flex rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+                                {([("FOR"), ("Ex-Factory")]).map((m) => (
+                                  <button key={m} onClick={() => updateFreightLeg(index, "mode", m)}
+                                    disabled={leg.preset !== "Custom"}
+                                    className={`flex-1 text-[10px] font-bold py-[6px] transition-all disabled:opacity-75 disabled:cursor-not-allowed ${leg.mode === m ? "bg-[#0F172A] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                                    {m}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <FieldLabel>Rate Basis</FieldLabel>
+                              <StyledSelect
+                                value={leg.rate}
+                                onChange={(v) => updateFreightLeg(index, "rate", v as FreightLeg["rate"])}
+                                options={["Per Ton", "Per kg", "Flat Rate"]}
+                              />
+                            </div>
+                          </div>
+
+                          <FieldLabel>Amount</FieldLabel>
+                          <NumInput
+                            value={leg.amount}
+                            onChange={(v) => {
+                              updateFreightLeg(index, "amount", v);
+                              if (leg.preset !== "Custom") updateFreightLeg(index, "preset", "Custom");
+                            }}
+                            placeholder="1800"
+                            locked={leg.preset !== "Custom"}
+                          />
+
+                          {leg.rate === "Flat Rate" && parseFloat(leg.amount) > 0 && result.volumeKg === 0 && (
+                            <p className="text-[10px] text-slate-400 mt-1 select-none font-medium">
+                              Enter deal volume to calculate flat-rate freight per kg
+                            </p>
+                          )}
+
+                          {legCost && parseFloat(leg.amount) > 0 && (
+                            <p className="text-[10px] text-slate-450 mt-1 font-mono">
+                              Subtotal: {fmtCurrency(legCost.perKg, currency, fxRate)}/kg ({fmtCurrency(legCost.total, currency, fxRate)})
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div>
-                      <FieldLabel>Delivery Mode</FieldLabel>
-                      <div className="flex rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
-                        {(["FOR", "Ex-Factory"] as const).map((m) => (
-                          <button key={m} onClick={() => set("freightMode", m)}
-                            disabled={inp.freightPreset !== "Custom"}
-                            className={`flex-1 text-[11px] font-bold py-[8px] transition-all disabled:opacity-70 disabled:cursor-not-allowed ${inp.freightMode === m ? "bg-[#0F172A] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                            {m}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <FieldLabel>Rate Basis</FieldLabel>
-                      <StyledSelect value={inp.freightRate} onChange={(v) => set("freightRate", v as Inputs["freightRate"])} options={["Per Ton", "Per kg", "Flat Rate"]} />
-                    </div>
-                  </div>
-                  <FieldLabel>Amount</FieldLabel>
-                  <NumInput
-                    value={inp.freight}
-                    onChange={(v) => {
-                      set("freight", v);
-                      if (inp.freightPreset !== "Custom") set("freightPreset", "Custom");
-                    }}
-                    placeholder="1800"
-                    locked={inp.freightPreset !== "Custom"}
-                  />
-                  {result.flatRateNeedsVolume && (
-                    <p className="text-[11px] text-slate-450 mt-1 select-none font-medium">
-                      Enter deal volume to calculate flat-rate freight per kg
-                    </p>
+                  {inp.freightLegs.length < 3 && (
+                    <button
+                      onClick={() => {
+                        const newLeg = {
+                          id: `leg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                          label: `Leg ${inp.freightLegs.length + 1}`,
+                          preset: "Custom",
+                          mode: "FOR",
+                          rate: "Per Ton",
+                          amount: "",
+                        };
+                        set("freightLegs", [...inp.freightLegs, newLeg]);
+                      }}
+                      className="mt-3 w-full bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg py-1.5 text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      + Add Freight Leg ({inp.freightLegs.length}/3)
+                    </button>
                   )}
+
                   {result.freightPerKg > result.procPerKg * 2 && result.freightPerKg > 0 && result.procPerKg > 0 && (
-                    <p className="text-[11px] text-slate-450 mt-1 select-none font-medium">
+                    <p className="text-[11px] text-slate-450 mt-2 select-none font-medium">
                       Freight looks unusually high relative to procurement cost — check you've selected the right rate basis (Per Ton vs Per kg).
                     </p>
                   )}
-                  <AnimatePresence>
-                    {inp.freight && (
-                      <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                        className="text-[11px] text-slate-400 mt-2 font-mono">
-                        {fmtCurrency(result.freightPerKg, currency, fxRate)}/kg · <span className="text-slate-600 font-semibold">{fmtCurrency(result.totalFreight, currency, fxRate)}</span>
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
+                  <div className="mt-3 border-t border-slate-150 pt-2 flex justify-between text-[11px] font-mono font-bold text-slate-600">
+                    <span>Total Freight Per kg:</span>
+                    <span>{fmtCurrency(result.freightPerKg, currency, fxRate)}/kg</span>
+                  </div>
                 </InputSection>
               </div>
 
               {/* Right Column: Volume, Packaging, Margin, Cap */}
               <div className="flex flex-col gap-3">
-                {/* ── 1. Volume ── */}
-                <InputSection icon={<Wheat className="w-3.5 h-3.5" />} title="Deal Volume">
-                  <FieldLabel>Quantity</FieldLabel>
-                  <div className="flex gap-2">
-                    <NumInput value={inp.volume} onChange={(v) => set("volume", v)} placeholder="100" />
-                    <StyledSelect value={inp.volumeUnit} onChange={(v) => set("volumeUnit", v as Inputs["volumeUnit"])} options={["MT", "kg", "Quintal"]} />
+                                {/* ── 1. Volume ── */}
+                <InputSection icon={getCommodityIcon(inp.commodity === "Other" ? inp.customCommodity : inp.commodity)} title="Deal Volume">
+                  <div className="mb-3">
+                    <FieldLabel>Commodity</FieldLabel>
+                    <StyledSelect
+                      value={inp.commodity}
+                      onChange={(v) => set("commodity", v)}
+                      options={["Rice", "Wheat", "Sugar", "Pulses", "Cotton", "Metals", "Chemicals", "Other"]}
+                    />
                   </div>
+                  
+                  {inp.commodity === "Other" && (
+                    <div className="mb-3">
+                      <FieldLabel>Custom Commodity Name</FieldLabel>
+                      <input
+                        type="text"
+                        value={inp.customCommodity}
+                        onChange={(e) => set("customCommodity", e.target.value)}
+                        placeholder="e.g. Soybeans"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400"
+                      />
+                    </div>
+                  )}
+
+                  <FieldLabel>Quantity</FieldLabel>
+                  <div className="flex gap-2 mb-3">
+                    <NumInput value={inp.volume} onChange={(v) => set("volume", v)} placeholder="100" />
+                    <StyledSelect value={inp.volumeUnit} onChange={(v) => set("volumeUnit", v as Inputs["volumeUnit"])} options={["MT", "kg", "Quintal", "Custom"]} />
+                  </div>
+
+                  {inp.volumeUnit === "Custom" && (
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div>
+                        <FieldLabel>Unit Name</FieldLabel>
+                        <input
+                          type="text"
+                          value={inp.customUnitLabel}
+                          onChange={(e) => set("customUnitLabel", e.target.value)}
+                          placeholder="bale"
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400"
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>kg per Unit</FieldLabel>
+                        <NumInput value={inp.customUnitKgFactor} onChange={(v) => set("customUnitKgFactor", v)} placeholder="50" />
+                      </div>
+                    </div>
+                  )}
+
                   <AnimatePresence>
                     {inp.volume && (
                       <motion.p
@@ -739,7 +1032,7 @@ export default function App() {
                   </AnimatePresence>
                 </InputSection>
 
-                {/* ── 4. Packaging ── */}
+                                {/* ── 4. Packaging ── */}
                 <InputSection icon={<Package className="w-3.5 h-3.5" />} title="Packaging Charges"
                   badge={inp.packagingEnabled ? "Active" : undefined}>
                   <div className="flex items-center justify-between mb-3">
@@ -758,7 +1051,15 @@ export default function App() {
                         exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }}
                         className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
                         <FieldLabel>Rate Basis</FieldLabel>
-                        <StyledSelect value={inp.packagingBasis} onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])} options={["Per Quintal", "Per 50kg bag"]} />
+                        <StyledSelect value={inp.packagingBasis} onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])} options={["Per Quintal", "Per 50kg bag", "Custom"]} />
+                        
+                        {inp.packagingBasis === "Custom" && (
+                          <div className="mb-2">
+                            <FieldLabel>Custom Divisor (kg per unit)</FieldLabel>
+                            <NumInput value={inp.packagingCustomDivisor} onChange={(v) => set("packagingCustomDivisor", v)} placeholder="100" />
+                          </div>
+                        )}
+
                         <FieldLabel>Rate (INR)</FieldLabel>
                         <NumInput value={inp.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
                         {inp.packagingRate && (
@@ -853,7 +1154,7 @@ export default function App() {
           ════════════════════════════════════════════════════════════ */}
           <div className="flex flex-col gap-5 print:gap-4 print:w-full">
 
-            {/* ── KPI TILES ── */}
+                        {/* ── KPI TILES ── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:grid-cols-4">
               <KPITile
                 label="Cost / kg"
@@ -880,6 +1181,42 @@ export default function App() {
                 variant={result.exceedsCap && hasData ? "red" : "dark"}
               />
             </div>
+
+            {/* ── SENSITIVITY COLLAPSIBLE ── */}
+            {hasData && (
+              <details className="bg-white rounded-xl border border-slate-200 shadow-sm print:hidden group overflow-hidden transition-all duration-200">
+                <summary className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider text-slate-500 cursor-pointer flex items-center justify-between hover:bg-slate-50 select-none">
+                  <span>Procurement Sensitivity Analysis</span>
+                  <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
+                </summary>
+                <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+                  <table className="w-full text-left text-[12.5px] border-collapse font-mono">
+                    <thead>
+                      <tr className="text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
+                        <th className="pb-2">Proc Price Shift</th>
+                        <th className="pb-2 text-right">Proc Price / kg</th>
+                        <th className="pb-2 text-right">Margin / kg</th>
+                        <th className="pb-2 text-right">Margin %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {sensitivityData.map((row) => (
+                        <tr key={row.labelStr} className={row.labelStr === "Current" ? "bg-emerald-500/5 font-semibold text-slate-800" : "text-slate-600"}>
+                          <td className="py-2">{row.labelStr}</td>
+                          <td className="py-2 text-right">{fmtCurrency(parseFloat(row.procPrice), currency, fxRate)}/kg</td>
+                          <td className={`py-2 text-right ${row.marginPerKg < 0 ? "text-red-500 font-semibold" : "text-emerald-600"}`}>
+                            {fmtCurrency(row.marginPerKg, currency, fxRate)}/kg
+                          </td>
+                          <td className={`py-2 text-right ${row.marginPerKg < 0 ? "text-red-500 font-semibold" : "text-emerald-600"}`}>
+                            {fmt(row.marginPct, 1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
 
             {/* Visual breakdown & chart */}
             {hasData && result.subtotalPerKg > 0 && (
@@ -981,14 +1318,17 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Printable Header */}
+                            {/* Printable Header */}
               <div className="hidden print:flex items-center justify-between border-b-2 border-slate-900 pb-4 mb-5">
                 <div>
                   <h1 className="text-[20px] font-black tracking-tight text-slate-900">Blueblood exports</h1>
-                  <p className="text-[12px] text-slate-500">B2B Trade Margin Calculation Quote Sheet</p>
+                  <p className="text-[12px] text-slate-500">
+                    {inp.commodity === "Other" ? inp.customCommodity : inp.commodity} Trade Quote Sheet
+                  </p>
                 </div>
                 <div className="text-right text-[11px] font-mono text-slate-500">
                   <p>Date: {new Date().toLocaleDateString("en-IN")}</p>
+                  <p>Ref ID: {currentRefId}</p>
                   <p>FX Conversion: 1 {currency} = {fxRate} INR</p>
                 </div>
               </div>
@@ -1006,12 +1346,12 @@ export default function App() {
                   </thead>
                   <tbody>
 
-                    {/* Procurement */}
+                                        {/* Procurement */}
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-700">
                         <div className="flex items-center gap-2">
-                          <Wheat className="w-3.5 h-3.5 text-slate-300 print:hidden" /> 
-                          Rice Procurement 
+                          {getCommodityIcon(inp.commodity === "Other" ? inp.customCommodity : inp.commodity, "w-3.5 h-3.5 text-slate-300 print:hidden")}
+                          {inp.commodity === "Other" ? inp.customCommodity : inp.commodity} Procurement 
                           {parseFloat(inp.lossPct) > 0 && <span className="text-[10px] bg-amber-50 border border-amber-100 text-amber-600 rounded px-1.5 py-0.5 font-semibold">Wastage {inp.lossPct}%</span>}
                         </div>
                       </td>
@@ -1020,15 +1360,60 @@ export default function App() {
                       <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">{hasData ? fmtCurrency(result.totalProcurement, currency, fxRate) : "—"}</td>
                     </tr>
 
-                    {/* Freight */}
-                    <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-700">
-                        <div className="flex items-center gap-2"><Truck className="w-3.5 h-3.5 text-slate-300 print:hidden" /> Freight / Logistics <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-bold ml-1">{inp.freightMode}</span></div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 font-mono text-[12px]">{inp.freightRate}</td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold text-slate-700">{fmtCurrency(result.freightPerKg, currency, fxRate)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">{hasData ? fmtCurrency(result.totalFreight, currency, fxRate) : "—"}</td>
-                    </tr>
+                    {/* Quality / Spec Adjustment */}
+                    {inp.specAdjEnabled && (
+                      <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                        <td className="px-4 py-3 font-medium text-slate-700">
+                          <div className="flex items-center gap-2">
+                            <Settings2 className="w-3.5 h-3.5 text-slate-300 print:hidden" />
+                            Quality / Spec Adjustment ({inp.specAdjMode === "premium" ? "Premium" : "Discount"})
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 font-mono text-[12px]">{inp.specAdjBasis === "percent" ? "% of proc" : "Flat"}</td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-slate-700">
+                          {inp.specAdjMode === "premium" ? "+" : "-"}{fmtCurrency(result.specAdjPerKg, currency, fxRate)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">
+                          {hasData ? fmtCurrency(result.totalSpecAdjustment, currency, fxRate) : "—"}
+                        </td>
+                      </tr>
+                    )}
+
+                    {/* Freight Legs */}
+                    {inp.freightLegs.map((leg, index) => {
+                      const legCost = result.freightLegCosts[index];
+                      if (!legCost) return null;
+                      return (
+                        <tr key={leg.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-700 pl-6 relative">
+                            <span className="absolute left-2 text-slate-300">↳</span>
+                            <div className="flex items-center gap-2">
+                              <Truck className="w-3.5 h-3.5 text-slate-300 print:hidden" />
+                              {leg.label || `Freight Leg ${index + 1}`}
+                              <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-bold ml-1">{leg.mode}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 font-mono text-[12px]">{leg.rate}</td>
+                          <td className="px-4 py-3 text-right font-mono font-semibold text-slate-700">{fmtCurrency(legCost.perKg, currency, fxRate)}</td>
+                          <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">{hasData ? fmtCurrency(legCost.total, currency, fxRate) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Freight Subtotal (only if multiple legs are active) */}
+                    {inp.freightLegs.length > 1 && (
+                      <tr className="bg-slate-50/30 border-b border-slate-100">
+                        <td colSpan={2} className="px-4 py-2 text-[12px] font-bold text-slate-500 pl-6">
+                          Freight Subtotal
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-[12px] font-bold text-slate-600">
+                          {fmtCurrency(result.freightPerKg, currency, fxRate)}
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-[12px] font-bold text-slate-600">
+                          {hasData ? fmtCurrency(result.freightPerKg * result.volumeKg, currency, fxRate) : "—"}
+                        </td>
+                      </tr>
+                    )}
 
                     {/* Packaging */}
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
@@ -1100,6 +1485,115 @@ export default function App() {
               </div>
             </div>
 
+                        {/* ── MULTI-BUYER COMPARISON PANEL ── */}
+            {compareIds.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm print:hidden">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+                  <div className="flex items-center gap-1.5">
+                    <BarChart3 className="w-4 h-4 text-emerald-500" />
+                    <span className="text-[11.5px] font-bold uppercase tracking-wider text-slate-500">Deal Comparison Matrix</span>
+                  </div>
+                  <button onClick={() => setCompareIds([])} className="text-[10px] text-slate-400 hover:text-slate-600 font-bold">Clear All</button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-[12.5px] border-collapse font-mono">
+                    <thead>
+                      <tr className="text-slate-400 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
+                        <th className="pb-2">Field</th>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          return (
+                            <th key={cid} className="pb-2 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="truncate max-w-[120px]" title={deal?.name}>{deal?.name || "Deal"}</span>
+                                <button onClick={() => toggleCompare(cid)} className="text-red-500 hover:text-red-700 ml-1 font-bold text-[13px] cursor-pointer">×</button>
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Ref ID</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          return <td key={cid} className="py-2 text-right font-semibold text-slate-700">{deal?.refId || "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Commodity</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const comm = deal?.inputs.commodity === "Other" ? deal?.inputs.customCommodity : deal?.inputs.commodity;
+                          return <td key={cid} className="py-2 text-right font-semibold text-slate-700">{comm || "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Volume</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          return <td key={cid} className="py-2 text-right">{res ? `${fmt(res.volumeMT, 1)} MT` : "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Cost / kg</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          return <td key={cid} className="py-2 text-right">{res ? fmtCurrency(res.subtotalPerKg, currency, fxRate) : "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Margin / kg</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          return <td key={cid} className={`py-2 text-right ${(res?.marginPerKg || 0) < 0 ? "text-red-500 font-bold" : "text-emerald-500 font-bold"}`}>{res ? fmtCurrency(res.marginPerKg, currency, fxRate) : "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Sell Price / kg</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          return <td key={cid} className={`py-2 text-right ${res?.exceedsCap ? "text-red-500 font-bold" : "text-slate-800"}`}>{res ? fmtCurrency(res.sellingPerKg, currency, fxRate) : "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Grand Total</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          return <td key={cid} className="py-2 text-right font-bold text-slate-800">{res ? fmtCurrencyShort(res.grandTotal, currency, fxRate) : "—"}</td>;
+                        })}
+                      </tr>
+                      <tr>
+                        <td className="py-2 text-slate-500 font-sans">Cap Status</td>
+                        {compareIds.map((cid) => {
+                          const deal = savedDeals.find((d) => d.id === cid);
+                          const res = deal ? calculate(deal.inputs) : null;
+                          if (!res) return <td key={cid} className="py-2 text-right">—</td>;
+                          return (
+                            <td key={cid} className="py-2 text-right">
+                              <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wide
+                                ${res.exceedsCap 
+                                  ? "bg-red-50 text-red-500 border border-red-150" 
+                                  : "bg-emerald-50 text-emerald-600 border border-emerald-150"}`}
+                              >
+                                {res.exceedsCap ? "Breach" : "Clear"}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* Saved Deals Ledger panel */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-all print:hidden">
               <div className="flex items-center gap-2 mb-3">
@@ -1114,16 +1608,27 @@ export default function App() {
                 ) : (
                   savedDeals.map((deal) => {
                     const dealRes = calculate(deal.inputs);
+                    const commName = deal.inputs.commodity === "Other" ? deal.inputs.customCommodity : deal.inputs.commodity;
                     return (
                       <div key={deal.id} className="flex items-center justify-between border border-slate-100 rounded-lg p-2.5 hover:bg-slate-50/50 transition-all">
                         <div className="flex-1 min-w-0 pr-3">
                           <p className="text-[12px] font-bold text-slate-700 truncate">{deal.name}</p>
                           <p className="text-[10px] text-slate-400 font-mono">
-                            {new Date(deal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {fmt(dealRes.volumeMT, 1)} MT · {fmtCurrencyShort(dealRes.grandTotal, currency, fxRate)}
+                            {deal.refId || "No Ref"} · {commName} · {fmt(dealRes.volumeMT, 1)} MT · {fmtCurrencyShort(dealRes.grandTotal, currency, fxRate)}
                           </p>
                         </div>
                         
                         <div className="flex gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => toggleCompare(deal.id)}
+                            className={`rounded px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer
+                              ${compareIds.includes(deal.id)
+                                ? "bg-emerald-500 text-white"
+                                : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900"
+                              }`}
+                          >
+                            Compare
+                          </button>
                           <button
                             onClick={() => setInp(deal.inputs)}
                             className="bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer"
