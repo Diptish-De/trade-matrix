@@ -220,8 +220,8 @@ function InputSection({ icon, title, badge, children }: {
   icon: React.ReactNode; title: string; badge?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200">
-      <div className="px-4 pt-3.5 pb-1 flex items-center gap-2.5 border-b border-slate-100">
+    <div className="group relative bg-white rounded-xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200 h-full flex flex-col">
+      <div className="px-4 pt-3.5 pb-1 flex items-center gap-2.5 border-b border-slate-100 flex-shrink-0">
         <div className="w-6 h-6 rounded-md bg-slate-900 flex items-center justify-center text-white">
           {icon}
         </div>
@@ -232,7 +232,7 @@ function InputSection({ icon, title, badge, children }: {
           </span>
         )}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 flex-1 flex flex-col justify-between">{children}</div>
     </div>
   );
 }
@@ -759,15 +759,17 @@ export default function App() {
             </InputSection>
 
             {/* ── 6. Buyer Cap ── */}
-            <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all duration-300
+            <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all duration-300 h-full flex flex-col
               ${result.exceedsCap && hasData ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
-              <div className="px-4 pt-3.5 pb-1 flex items-center gap-2 border-b border-dashed border-slate-200">
+              <div className="px-4 pt-3.5 pb-1 flex items-center gap-2 border-b border-dashed border-slate-200 flex-shrink-0">
                 <AlertTriangle className={`w-3.5 h-3.5 ${result.exceedsCap && hasData ? "text-red-500" : "text-slate-300"}`} />
                 <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Buyer Cap / Alert</span>
               </div>
-              <div className="p-4">
-                <FieldLabel>Max Selling Price (INR/kg)</FieldLabel>
-                <NumInput value={inp.buyerCap} onChange={(v) => set("buyerCap", v)} placeholder="22.00" alert={result.exceedsCap && hasData} />
+              <div className="p-4 flex-1 flex flex-col justify-between">
+                <div>
+                  <FieldLabel>Max Selling Price (INR/kg)</FieldLabel>
+                  <NumInput value={inp.buyerCap} onChange={(v) => set("buyerCap", v)} placeholder="22.00" alert={result.exceedsCap && hasData} />
+                </div>
                 <p className={`text-[11px] mt-1.5 ${result.exceedsCap && hasData ? "text-red-400 font-semibold" : "text-slate-400"}`}>
                   {result.exceedsCap && hasData
                     ? `${fmtCurrency(result.sellingPerKg - parseFloat(inp.buyerCap), currency, fxRate)}/kg over cap — deal at risk`
