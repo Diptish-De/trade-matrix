@@ -1,5 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Save, ChevronDown, AlertTriangle, TrendingUp, Package, Truck, Wheat, IndianRupee, BarChart3, RefreshCw } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { animate } from "motion";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,31 @@ function fmtINR(n: number): string {
   if (n >= 1e7) return `₹${fmt(n / 1e7, 2)} Cr`;
   if (n >= 1e5) return `₹${fmt(n / 1e5, 2)} L`;
   return `₹${fmt(n, 0)}`;
+}
+
+// ── animated number component ─────────────────────────────────────────────────
+
+function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    const controls = animate(prevValue.current, value, {
+      duration: 0.6,
+      ease: [0.16, 1, 0.3, 1], // cubic easeOut
+      onUpdate(val) {
+        node.textContent = format(val);
+      },
+    });
+
+    prevValue.current = value;
+    return () => controls.stop();
+  }, [value, format]);
+
+  return <span ref={ref}>{format(value)}</span>;
 }
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -161,7 +188,7 @@ function NumInput({
 
 function InputCard({ children, icon, title }: { children: React.ReactNode; icon: React.ReactNode; title: string }) {
   return (
-    <div className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm">
+    <div className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm hover:shadow-md hover:border-slate-200 transition-all duration-300">
       <div className="flex items-center gap-2 mb-3">
         <div className="w-7 h-7 rounded-md bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400">
           {icon}
@@ -176,11 +203,11 @@ function InputCard({ children, icon, title }: { children: React.ReactNode; icon:
 function KPICard({
   label, value, sub, accent = false, warn = false,
 }: {
-  label: string; value: string; sub?: string; accent?: boolean; warn?: boolean;
+  label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; warn?: boolean;
 }) {
   return (
     <div
-      className={`rounded-lg p-4 border flex flex-col gap-1
+      className={`rounded-lg p-4 border flex flex-col gap-1 transition-all duration-300 hover:shadow-md hover:border-slate-200
         ${warn ? "bg-red-50 border-red-200" :
           accent ? "bg-emerald-50 border-emerald-200" :
           "bg-white border-slate-100 shadow-sm"}`}
@@ -189,7 +216,7 @@ function KPICard({
         ${warn ? "text-red-400" : accent ? "text-emerald-500" : "text-slate-400"}`}>
         {label}
       </span>
-      <span className={`font-mono text-xl font-bold leading-tight
+      <span className={`font-mono text-xl font-bold leading-tight tracking-tight
         ${warn ? "text-red-600" : accent ? "text-emerald-600" : "text-slate-900"}`}>
         {value}
       </span>
@@ -254,19 +281,25 @@ export default function App() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-[Inter,sans-serif]">
+    <div className="min-h-screen bg-[#F8FAFC] font-[Inter,sans-serif] tracking-tight">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="bg-[#0F172A] border-b border-slate-700/50 sticky top-0 z-40">
         <div className="max-w-[1440px] mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 bg-emerald-500 rounded-md flex items-center justify-center">
+            <div className="w-7 h-7 bg-gradient-to-tr from-emerald-600 to-emerald-400 rounded-md flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <BarChart3 className="w-4 h-4 text-white" />
             </div>
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-center gap-3">
               <span className="text-white font-bold text-[15px] tracking-tight">Bluebloodexports</span>
               <span className="hidden sm:block text-slate-500 text-[12px]">/</span>
-              <span className="hidden sm:block text-slate-400 text-[13px] font-medium">B2B Trade Margin Engine</span>
+              <span className="hidden sm:block text-slate-400 text-[13px] font-medium tracking-tight">B2B Trade Margin Engine</span>
+              {hasData && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -283,9 +316,10 @@ export default function App() {
             >
               Clear
             </button>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={handleSave}
-              className={`flex items-center gap-1.5 text-[12px] font-semibold px-4 py-1.5 rounded transition-all
+              className={`flex items-center gap-1.5 text-[12px] font-semibold px-4 py-1.5 rounded transition-all cursor-pointer
                 ${saved
                   ? "bg-emerald-500 text-white"
                   : "bg-emerald-500 hover:bg-emerald-400 text-white"
@@ -293,21 +327,31 @@ export default function App() {
             >
               <Save className="w-3.5 h-3.5" />
               {saved ? "Saved!" : "Save Deal"}
-            </button>
+            </motion.button>
           </div>
         </div>
       </header>
 
       {/* ── Alert banner ─────────────────────────────────────────────────── */}
-      {result.exceedsCap && hasData && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
-          <span className="text-[13px] font-semibold text-red-700">
-            Selling price ₹{fmt(result.sellingPerKg)}/kg exceeds buyer cap of ₹{inputs.buyerCap}/kg
-            &nbsp;·&nbsp; Margin squeeze: ₹{fmt(result.sellingPerKg - parseFloat(inputs.buyerCap))}/kg over cap
-          </span>
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {result.exceedsCap && hasData && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+              <span className="text-[13px] font-semibold text-red-700">
+                Selling price ₹{fmt(result.sellingPerKg)}/kg exceeds buyer cap of ₹{inputs.buyerCap}/kg
+                &nbsp;·&nbsp; Margin squeeze: ₹{fmt(result.sellingPerKg - parseFloat(inputs.buyerCap))}/kg over cap
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <main className="max-w-[1440px] mx-auto px-6 py-6">
@@ -331,11 +375,18 @@ export default function App() {
                   options={["MT", "kg", "Quintal"]}
                 />
               </div>
-              {inputs.volume && (
-                <p className="text-[11px] text-slate-400 mt-1.5 font-mono">
-                  = {fmt(result.volumeKg, 0)} kg &nbsp;/&nbsp; {fmt(result.volumeMT, 3)} MT
-                </p>
-              )}
+              <AnimatePresence initial={false}>
+                {inputs.volume && (
+                  <motion.p
+                    initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                    animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+                    exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                    className="text-[11px] text-slate-400 font-mono overflow-hidden"
+                  >
+                    = {fmt(result.volumeKg, 0)} kg &nbsp;/&nbsp; {fmt(result.volumeMT, 3)} MT
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </InputCard>
 
             {/* Procurement Price */}
@@ -354,11 +405,18 @@ export default function App() {
                   options={["INR/kg", "INR/MT"]}
                 />
               </div>
-              {inputs.procPrice && (
-                <p className="text-[11px] text-slate-400 mt-1.5 font-mono">
-                  ₹{fmt(result.procPerKg, 4)}/kg · Total: {fmtINR(result.totalProcurement)}
-                </p>
-              )}
+              <AnimatePresence initial={false}>
+                {inputs.procPrice && (
+                  <motion.p
+                    initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                    animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+                    exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                    className="text-[11px] text-slate-400 font-mono overflow-hidden"
+                  >
+                    ₹{fmt(result.procPerKg, 4)}/kg · Total: <AnimatedNumber value={result.totalProcurement} format={fmtINR} />
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </InputCard>
 
             {/* Freight */}
@@ -366,15 +424,15 @@ export default function App() {
               <div className="flex gap-2 mb-3">
                 <div className="flex-1">
                   <Label>Mode</Label>
-                  <div className="flex rounded overflow-hidden border border-slate-200">
+                  <div className="flex gap-1.5">
                     {(["FOR", "Ex-Factory"] as const).map((m) => (
                       <button
                         key={m}
                         onClick={() => set("freightMode", m)}
-                        className={`flex-1 text-[12px] font-semibold py-1.5 transition-all
+                        className={`text-[12px] font-semibold px-3 py-1.5 rounded-full transition-all cursor-pointer border
                           ${inputs.freightMode === m
-                            ? "bg-[#0F172A] text-white"
-                            : "bg-white text-slate-500 hover:bg-slate-50"
+                            ? "bg-[#0F172A] border-[#0F172A] text-white"
+                            : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
                           }`}
                       >
                         {m}
@@ -393,49 +451,83 @@ export default function App() {
               </div>
               <Label>Amount</Label>
               <NumInput value={inputs.freight} onChange={(v) => set("freight", v)} placeholder="1800" />
-              {inputs.freight && (
-                <p className="text-[11px] text-slate-400 mt-1.5 font-mono">
-                  ₹{fmt(result.freightPerKg, 4)}/kg · Total: {fmtINR(result.totalFreight)}
-                </p>
-              )}
+              <AnimatePresence initial={false}>
+                {inputs.freight && (
+                  <motion.p
+                    initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                    animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+                    exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                    className="text-[11px] text-slate-400 font-mono overflow-hidden"
+                  >
+                    ₹{fmt(result.freightPerKg, 4)}/kg · Total: <AnimatedNumber value={result.totalFreight} format={fmtINR} />
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </InputCard>
 
             {/* Packaging */}
             <InputCard icon={<Package className="w-3.5 h-3.5" />} title="Packaging Charges">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-1">
                 <span className="text-[12px] text-slate-500 font-medium">Include packaging cost</span>
                 <button
                   onClick={() => set("packagingEnabled", !inputs.packagingEnabled)}
-                  className={`w-10 h-5.5 rounded-full relative transition-all flex items-center px-0.5
+                  className={`w-10 h-[22px] rounded-full relative transition-colors duration-200 flex items-center px-0.5 cursor-pointer outline-none focus:ring-2 focus:ring-emerald-500/40
                     ${inputs.packagingEnabled ? "bg-emerald-500" : "bg-slate-200"}`}
-                  style={{ height: "22px" }}
                 >
-                  <span
-                    className={`w-4 h-4 rounded-full bg-white shadow transition-transform block
-                      ${inputs.packagingEnabled ? "translate-x-5" : "translate-x-0"}`}
+                  <motion.span
+                    layout
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    className="w-4 h-4 rounded-full bg-white shadow block"
+                    style={{
+                      marginLeft: inputs.packagingEnabled ? "18px" : "0px",
+                    }}
                   />
                 </button>
               </div>
-              {inputs.packagingEnabled && (
-                <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
-                  <Label>Rate Basis</Label>
-                  <Select
-                    value={inputs.packagingBasis}
-                    onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])}
-                    options={["Per Quintal", "Per 50kg bag"]}
-                  />
-                  <Label>Rate (INR)</Label>
-                  <NumInput value={inputs.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
-                  {inputs.packagingRate && (
-                    <p className="text-[11px] text-slate-400 font-mono">
-                      ₹{fmt(result.packPerKg, 4)}/kg · Total: {fmtINR(result.totalPackaging)}
-                    </p>
-                  )}
-                </div>
-              )}
-              {!inputs.packagingEnabled && (
-                <p className="text-[11px] text-slate-300 font-mono">₹0.0000/kg · excluded from ledger</p>
-              )}
+              <AnimatePresence initial={false}>
+                {inputs.packagingEnabled ? (
+                  <motion.div
+                    key="pkg-content"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="border-t border-slate-100 pt-3 mt-3 flex flex-col gap-2">
+                      <Label>Rate Basis</Label>
+                      <Select
+                        value={inputs.packagingBasis}
+                        onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])}
+                        options={["Per Quintal", "Per 50kg bag"]}
+                      />
+                      <Label>Rate (INR)</Label>
+                      <NumInput value={inputs.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
+                      <AnimatePresence initial={false}>
+                        {inputs.packagingRate && (
+                          <motion.p
+                            initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                            animate={{ height: "auto", opacity: 1, marginTop: 4 }}
+                            exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                            className="text-[11px] text-slate-400 font-mono overflow-hidden"
+                          >
+                            ₹{fmt(result.packPerKg, 4)}/kg · Total: <AnimatedNumber value={result.totalPackaging} format={fmtINR} />
+                          </motion.p>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.p
+                    key="pkg-off"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-[11px] text-slate-300 font-mono mt-2"
+                  >
+                    ₹0.0000/kg · excluded from ledger
+                  </motion.p>
+                )}
+              </AnimatePresence>
             </InputCard>
 
             {/* Target Margin */}
@@ -443,14 +535,29 @@ export default function App() {
               <Label>Fixed Margin (INR/kg)</Label>
               <NumInput value={inputs.targetMargin} onChange={(v) => set("targetMargin", v)} placeholder="1.40" />
               {inputs.targetMargin && result.subtotalPerKg > 0 && (
-                <p className="text-[11px] text-emerald-500 mt-1.5 font-mono font-semibold">
-                  {fmt(marginPct, 1)}% margin on cost · {fmtINR(result.totalMargin)} net profit
-                </p>
+                <div className="mt-2">
+                  <div className="flex justify-between items-center text-[11px] font-semibold text-emerald-500 font-mono mb-1">
+                    <span>
+                      <AnimatedNumber value={marginPct} format={(v) => fmt(v, 1)} />% margin on cost
+                    </span>
+                    <span>
+                      <AnimatedNumber value={result.totalMargin} format={fmtINR} /> profit
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      className="bg-emerald-500 h-full rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(marginPct, 100)}%` }}
+                      transition={{ duration: 0.4 }}
+                    />
+                  </div>
+                </div>
               )}
             </InputCard>
 
             {/* Buyer Cap */}
-            <div className="bg-white border border-dashed border-slate-200 rounded-lg p-4">
+            <div className="bg-white border border-dashed border-slate-200 rounded-lg p-4 transition-all duration-300 hover:shadow-md hover:border-slate-300">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className={`w-3.5 h-3.5 ${result.exceedsCap && hasData ? "text-red-500" : "text-slate-300"}`} />
                 <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider">Buyer Cap / Alert Threshold</span>
@@ -473,47 +580,120 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <KPICard
                 label="Cost/kg"
-                value={`₹${fmt(result.subtotalPerKg)}`}
-                sub={`${fmtINR(result.totalSubtotal)} total`}
+                value={<>₹<AnimatedNumber value={result.subtotalPerKg} format={(v) => fmt(v)} /></>}
+                sub={<><AnimatedNumber value={result.totalSubtotal} format={fmtINR} /> total</>}
               />
               <KPICard
                 label="Net Margin"
-                value={`₹${fmt(result.marginPerKg)}`}
-                sub={`${fmt(marginPct, 1)}% on cost`}
+                value={<>₹<AnimatedNumber value={result.marginPerKg} format={(v) => fmt(v)} /></>}
+                sub={<><AnimatedNumber value={marginPct} format={(v) => fmt(v, 1)} />% on cost</>}
                 accent
               />
               <KPICard
                 label="Selling/kg"
-                value={`₹${fmt(result.sellingPerKg)}`}
+                value={<>₹<AnimatedNumber value={result.sellingPerKg} format={(v) => fmt(v)} /></>}
                 sub={inputs.buyerCap ? `Cap: ₹${inputs.buyerCap}/kg` : undefined}
                 warn={result.exceedsCap && hasData}
               />
               <KPICard
                 label="Grand Total"
-                value={fmtINR(result.grandTotal)}
-                sub={`${fmt(result.volumeMT, 1)} MT deal`}
+                value={<AnimatedNumber value={result.grandTotal} format={fmtINR} />}
+                sub={<>{fmt(result.volumeMT, 1)} MT deal</>}
                 accent={!result.exceedsCap}
                 warn={result.exceedsCap && hasData}
               />
             </div>
+
+            {/* Cost Stack Breakdown Bar */}
+            {hasData && (
+              <div className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm hover:shadow-md hover:border-slate-200 transition-all duration-300">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider">Cost Stack Breakdown</span>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    Selling Price: ₹<AnimatedNumber value={result.sellingPerKg} format={(v) => fmt(v)} />/kg
+                  </span>
+                </div>
+                <div className="h-6 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
+                  {/* Procurement */}
+                  <motion.div
+                    className="bg-emerald-600 h-full"
+                    animate={{ width: `${(result.procPerKg / result.sellingPerKg) * 100}%` }}
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                  {/* Freight */}
+                  <motion.div
+                    className="bg-sky-500 h-full"
+                    animate={{ width: `${(result.freightPerKg / result.sellingPerKg) * 100}%` }}
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                  {/* Packaging */}
+                  {inputs.packagingEnabled && (
+                    <motion.div
+                      className="bg-amber-500 h-full"
+                      animate={{ width: `${(result.packPerKg / result.sellingPerKg) * 100}%` }}
+                      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  )}
+                  {/* Margin */}
+                  <motion.div
+                    className="bg-teal-400 h-full"
+                    animate={{ width: `${(result.marginPerKg / result.sellingPerKg) * 100}%` }}
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                </div>
+                {/* Legend */}
+                <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-[12px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded bg-emerald-600 inline-block" />
+                    <span className="text-slate-500">Procurement:</span>
+                    <span className="font-semibold text-slate-700 font-mono">
+                      <AnimatedNumber value={(result.procPerKg / result.sellingPerKg) * 100} format={(v) => fmt(v, 1)} />%
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded bg-sky-500 inline-block" />
+                    <span className="text-slate-500">Freight:</span>
+                    <span className="font-semibold text-slate-700 font-mono">
+                      <AnimatedNumber value={(result.freightPerKg / result.sellingPerKg) * 100} format={(v) => fmt(v, 1)} />%
+                    </span>
+                  </div>
+                  {inputs.packagingEnabled && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" />
+                      <span className="text-slate-500">Packaging:</span>
+                      <span className="font-semibold text-slate-700 font-mono">
+                        <AnimatedNumber value={(result.packPerKg / result.sellingPerKg) * 100} format={(v) => fmt(v, 1)} />%
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded bg-teal-400 inline-block" />
+                    <span className="text-slate-500">Margin:</span>
+                    <span className="font-semibold text-slate-700 font-mono">
+                      <AnimatedNumber value={(result.marginPerKg / result.sellingPerKg) * 100} format={(v) => fmt(v, 1)} />%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Comparison Engine */}
             <div>
               <h2 className="text-[13px] font-bold uppercase tracking-widest text-slate-400 mb-3">Live Comparison Engine</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Baseline Card */}
-                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden transition-all duration-300 hover:shadow-md hover:border-slate-300">
                   <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                     <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Demo Baseline</span>
-                    <span className="text-[11px] font-mono text-slate-400">100 MT · ₹18.80/kg</span>
+                    <span className="text-[11px] font-mono text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full">100 MT · ₹18.80/kg</span>
                   </div>
                   <div className="p-4 space-y-2">
                     {[
-                      { label: "Procurement", val: `₹${fmt(demoResult.procPerKg)}/kg` },
-                      { label: "Freight (FOR)", val: `₹${fmt(demoResult.freightPerKg)}/kg` },
-                      { label: "Packaging", val: `₹${fmt(demoResult.packPerKg)}/kg` },
-                      { label: "Cost Stack", val: `₹${fmt(demoResult.subtotalPerKg)}/kg`, bold: true },
-                      { label: "Margin", val: `₹${fmt(demoResult.marginPerKg)}/kg`, green: true },
+                      { label: "Procurement", val: <><AnimatedNumber value={demoResult.procPerKg} format={(v) => "₹" + fmt(v)} />/kg</> },
+                      { label: "Freight (FOR)", val: <><AnimatedNumber value={demoResult.freightPerKg} format={(v) => "₹" + fmt(v)} />/kg</> },
+                      { label: "Packaging", val: <><AnimatedNumber value={demoResult.packPerKg} format={(v) => "₹" + fmt(v)} />/kg</> },
+                      { label: "Cost Stack", val: <><AnimatedNumber value={demoResult.subtotalPerKg} format={(v) => "₹" + fmt(v)} />/kg</>, bold: true },
+                      { label: "Margin", val: <><AnimatedNumber value={demoResult.marginPerKg} format={(v) => "₹" + fmt(v)} />/kg</>, green: true },
                     ].map(({ label, val, bold, green }) => (
                       <div key={label} className="flex justify-between items-center">
                         <span className={`text-[13px] ${bold ? "font-semibold text-slate-700" : "text-slate-500"}`}>{label}</span>
@@ -522,24 +702,37 @@ export default function App() {
                     ))}
                     <div className="border-t border-slate-200 pt-2 mt-1 flex justify-between items-center">
                       <span className="text-[13px] font-bold text-slate-800">Selling Price</span>
-                      <span className="font-mono text-[15px] font-bold text-slate-900">₹{fmt(demoResult.sellingPerKg)}/kg</span>
+                      <span className="font-mono text-[15px] font-bold text-slate-900">
+                        ₹<AnimatedNumber value={demoResult.sellingPerKg} format={(v) => fmt(v)} />/kg
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-[11px] text-slate-400">Grand Total</span>
-                      <span className="font-mono text-[13px] font-bold text-slate-600">{fmtINR(demoResult.grandTotal)}</span>
+                      <span className="font-mono text-[13px] font-bold text-slate-600">
+                        <AnimatedNumber value={demoResult.grandTotal} format={fmtINR} />
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Live Card */}
-                <div className={`border rounded-lg overflow-hidden
-                  ${result.exceedsCap && hasData
-                    ? "border-red-300 shadow-md shadow-red-100"
-                    : hasData
-                    ? "border-emerald-300 shadow-md shadow-emerald-50"
-                    : "border-slate-200 bg-white"
-                  }`}>
-                  <div className={`px-4 py-3 border-b flex items-center justify-between
+                <motion.div
+                  animate={{
+                    borderColor: result.exceedsCap && hasData
+                      ? "rgba(239, 68, 68, 0.8)"  // red-500
+                      : hasData
+                      ? "rgba(16, 185, 129, 0.8)" // emerald-500
+                      : "rgba(226, 232, 240, 1)",  // slate-200
+                    boxShadow: result.exceedsCap && hasData
+                      ? "0 10px 15px -3px rgba(254, 226, 226, 0.7), 0 4px 6px -4px rgba(254, 226, 226, 0.7)" // red shadow
+                      : hasData
+                      ? "0 10px 15px -3px rgba(209, 250, 229, 0.7), 0 4px 6px -4px rgba(209, 250, 229, 0.7)" // emerald shadow
+                      : "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)", // default shadow
+                  }}
+                  transition={{ duration: 0.4 }}
+                  className="border rounded-lg overflow-hidden bg-white hover:border-slate-300 transition-all duration-300"
+                >
+                  <div className={`px-4 py-3 border-b flex items-center justify-between transition-colors duration-300
                     ${result.exceedsCap && hasData
                       ? "bg-red-50 border-red-200"
                       : hasData
@@ -551,23 +744,23 @@ export default function App() {
                       {hasData ? "Live Calculation" : "Awaiting Input"}
                     </span>
                     {result.exceedsCap && hasData && (
-                      <span className="flex items-center gap-1 text-[11px] font-semibold text-red-500">
-                        <AlertTriangle className="w-3 h-3" /> Over Cap
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                        <AlertTriangle className="w-3 h-3 text-red-500" /> Over Cap
                       </span>
                     )}
                     {!result.exceedsCap && hasData && (
-                      <span className="text-[11px] font-mono text-emerald-500">
-                        {fmt(result.volumeMT, 1)} MT · ₹{fmt(result.procPerKg)}/kg
+                      <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        ✓ Within cap
                       </span>
                     )}
                   </div>
                   <div className={`p-4 space-y-2 ${hasData ? "" : "opacity-40"}`}>
                     {[
-                      { label: "Procurement", val: `₹${fmt(result.procPerKg)}/kg` },
-                      { label: `Freight (${inputs.freightMode})`, val: `₹${fmt(result.freightPerKg)}/kg` },
-                      { label: inputs.packagingEnabled ? "Packaging" : "Packaging (off)", val: `₹${fmt(result.packPerKg)}/kg`, muted: !inputs.packagingEnabled },
-                      { label: "Cost Stack", val: `₹${fmt(result.subtotalPerKg)}/kg`, bold: true },
-                      { label: "Margin", val: `₹${fmt(result.marginPerKg)}/kg`, green: !result.exceedsCap && hasData, red: result.exceedsCap && hasData },
+                      { label: "Procurement", val: <><AnimatedNumber value={result.procPerKg} format={(v) => "₹" + fmt(v)} />/kg</> },
+                      { label: `Freight (${inputs.freightMode})`, val: <><AnimatedNumber value={result.freightPerKg} format={(v) => "₹" + fmt(v)} />/kg</> },
+                      { label: inputs.packagingEnabled ? "Packaging" : "Packaging (off)", val: <><AnimatedNumber value={result.packPerKg} format={(v) => "₹" + fmt(v)} />/kg</>, muted: !inputs.packagingEnabled },
+                      { label: "Cost Stack", val: <><AnimatedNumber value={result.subtotalPerKg} format={(v) => "₹" + fmt(v)} />/kg</>, bold: true },
+                      { label: "Margin", val: <><AnimatedNumber value={result.marginPerKg} format={(v) => "₹" + fmt(v)} />/kg</>, green: !result.exceedsCap && hasData, red: result.exceedsCap && hasData },
                     ].map(({ label, val, bold, green, red, muted }) => (
                       <div key={label} className="flex justify-between items-center">
                         <span className={`text-[13px] ${bold ? "font-semibold text-slate-700" : muted ? "text-slate-300" : "text-slate-500"}`}>{label}</span>
@@ -582,25 +775,25 @@ export default function App() {
                       <span className="text-[13px] font-bold text-slate-800">Selling Price</span>
                       <span className={`font-mono text-[15px] font-bold
                         ${result.exceedsCap && hasData ? "text-red-600" : "text-slate-900"}`}>
-                        ₹{fmt(result.sellingPerKg)}/kg
+                        ₹<AnimatedNumber value={result.sellingPerKg} format={(v) => fmt(v)} />/kg
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-[11px] text-slate-400">Grand Total</span>
                       <span className={`font-mono text-[13px] font-bold
                         ${result.exceedsCap && hasData ? "text-red-500" : "text-emerald-600"}`}>
-                        {fmtINR(result.grandTotal)}
+                        <AnimatedNumber value={result.grandTotal} format={fmtINR} />
                       </span>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               </div>
             </div>
 
             {/* Master Invoice Ledger */}
             <div>
               <h2 className="text-[13px] font-bold uppercase tracking-widest text-slate-400 mb-3">Master Invoice Ledger</h2>
-              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="bg-white border border-slate-200 rounded-lg overflow-hidden transition-all duration-300 hover:shadow-md hover:border-slate-300">
                 <table className="w-full text-[13px] border-collapse">
                   <thead>
                     <tr className="bg-[#0F172A]">
@@ -621,10 +814,10 @@ export default function App() {
                       </td>
                       <td className="px-4 py-3 text-slate-500 font-mono">{inputs.procUnit || "INR/kg"}</td>
                       <td className="px-4 py-3 text-right font-mono font-medium text-slate-700">
-                        ₹{fmt(result.procPerKg, 4)}
+                        ₹<AnimatedNumber value={result.procPerKg} format={(v) => fmt(v, 4)} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">
-                        {hasData ? fmtINR(result.totalProcurement) : "—"}
+                        {hasData ? <AnimatedNumber value={result.totalProcurement} format={fmtINR} /> : "—"}
                       </td>
                     </tr>
 
@@ -638,10 +831,10 @@ export default function App() {
                       </td>
                       <td className="px-4 py-3 text-slate-500 font-mono">{inputs.freightRate}</td>
                       <td className="px-4 py-3 text-right font-mono font-medium text-slate-700">
-                        ₹{fmt(result.freightPerKg, 4)}
+                        ₹<AnimatedNumber value={result.freightPerKg} format={(v) => fmt(v, 4)} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">
-                        {hasData ? fmtINR(result.totalFreight) : "—"}
+                        {hasData ? <AnimatedNumber value={result.totalFreight} format={fmtINR} /> : "—"}
                       </td>
                     </tr>
 
@@ -660,10 +853,10 @@ export default function App() {
                         {inputs.packagingEnabled ? inputs.packagingBasis : "—"}
                       </td>
                       <td className={`px-4 py-3 text-right font-mono font-medium ${inputs.packagingEnabled ? "text-slate-700" : "text-slate-300"}`}>
-                        {inputs.packagingEnabled ? `₹${fmt(result.packPerKg, 4)}` : "₹0.0000"}
+                        ₹<AnimatedNumber value={result.packPerKg} format={(v) => fmt(v, 4)} />
                       </td>
                       <td className={`px-4 py-3 text-right font-mono font-semibold ${inputs.packagingEnabled ? "text-slate-800" : "text-slate-300"}`}>
-                        {inputs.packagingEnabled && hasData ? fmtINR(result.totalPackaging) : "₹0"}
+                        {inputs.packagingEnabled && hasData ? <AnimatedNumber value={result.totalPackaging} format={fmtINR} /> : "₹0"}
                       </td>
                     </tr>
 
@@ -675,10 +868,10 @@ export default function App() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-slate-800">
-                        ₹{fmt(result.subtotalPerKg, 4)}
+                        ₹<AnimatedNumber value={result.subtotalPerKg} format={(v) => fmt(v, 4)} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">
-                        {hasData ? fmtINR(result.totalSubtotal) : "—"}
+                        {hasData ? <AnimatedNumber value={result.totalSubtotal} format={fmtINR} /> : "—"}
                       </td>
                     </tr>
 
@@ -690,36 +883,40 @@ export default function App() {
                           Net Profit Margin
                           {result.subtotalPerKg > 0 && (
                             <span className="text-[10px] bg-emerald-100 text-emerald-600 rounded px-1.5 py-0.5 font-bold">
-                              {fmt(marginPct, 1)}%
+                              <AnimatedNumber value={marginPct} format={(v) => fmt(v, 1)} />%
                             </span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-emerald-600">INR/kg</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">
-                        ₹{fmt(result.marginPerKg, 4)}
+                        ₹<AnimatedNumber value={result.marginPerKg} format={(v) => fmt(v, 4)} />
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">
-                        {hasData ? fmtINR(result.totalMargin) : "—"}
+                        {hasData ? <AnimatedNumber value={result.totalMargin} format={fmtINR} /> : "—"}
                       </td>
                     </tr>
 
                     {/* Grand Total */}
-                    <tr className={`border-t-2 ${result.exceedsCap && hasData ? "border-red-400 bg-red-50" : "border-[#0F172A] bg-[#0F172A]"}`}>
-                      <td colSpan={2} className={`px-4 py-4 text-[15px] font-bold uppercase tracking-wide
-                        ${result.exceedsCap && hasData ? "text-red-700" : "text-white"}`}>
+                    <tr className={`border-t-2 transition-all duration-300
+                      ${result.exceedsCap && hasData
+                        ? "border-red-600 bg-red-600 text-white"
+                        : "border-[#0F172A] bg-[#0F172A] text-white"
+                      }`}
+                    >
+                      <td colSpan={2} className="px-4 py-4 text-[15px] font-bold uppercase tracking-wide">
                         {result.exceedsCap && hasData
                           ? "⚠ Grand Total — EXCEEDS CAP"
                           : "Grand Total / Selling Price"
                         }
                       </td>
                       <td className={`px-4 py-4 text-right font-mono text-[16px] font-bold
-                        ${result.exceedsCap && hasData ? "text-red-700" : "text-emerald-400"}`}>
-                        ₹{fmt(result.sellingPerKg, 4)}<span className="text-[12px] ml-0.5 opacity-70">/kg</span>
+                        ${result.exceedsCap && hasData ? "text-white" : "text-emerald-400"}`}>
+                        ₹<AnimatedNumber value={result.sellingPerKg} format={(v) => fmt(v, 4)} />
+                        <span className="text-[12px] ml-0.5 opacity-70">/kg</span>
                       </td>
-                      <td className={`px-4 py-4 text-right font-mono text-[18px] font-bold
-                        ${result.exceedsCap && hasData ? "text-red-700" : "text-white"}`}>
-                        {hasData ? fmtINR(result.grandTotal) : "—"}
+                      <td className="px-4 py-4 text-right font-mono text-[18px] font-bold">
+                        {hasData ? <AnimatedNumber value={result.grandTotal} format={fmtINR} /> : "—"}
                       </td>
                     </tr>
                   </tbody>
