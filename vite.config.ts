@@ -2,12 +2,15 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'url'
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 function localAssetResolver() {
   return {
     name: 'local-asset-resolver',
-    resolveId(id) {
+    resolveId(id: string) {
       if (id.startsWith('local:asset/')) {
         const filename = id.replace('local:asset/', '')
         return path.resolve(__dirname, 'src/assets', filename)

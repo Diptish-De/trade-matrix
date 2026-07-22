@@ -3,7 +3,7 @@ import {
   Save, ChevronDown, AlertTriangle, TrendingUp, Package,
   Truck, Wheat, IndianRupee, BarChart3, RefreshCw, Zap,
   CheckCircle2, ArrowRight, Activity, Download, Printer,
-  DollarSign, Euro, Trash2, FolderOpen, Settings2
+  DollarSign, Euro, Trash2, FolderOpen, Settings2, Copy, Check, HelpCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
@@ -294,8 +294,8 @@ function InputSection({ icon, title, badge, children }: {
   icon: React.ReactNode; title: string; badge?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-200/80 overflow-hidden shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200 h-full flex flex-col">
-      <div className="px-4 pt-3.5 pb-1 flex items-center gap-2.5 border-b border-slate-100 flex-shrink-0">
+    <div className="group relative bg-white rounded-xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200 flex flex-col flex-shrink-0">
+      <div className="px-4 pt-3.5 pb-1 flex items-center gap-2.5 border-b border-slate-100 flex-shrink-0 rounded-t-xl">
         <div className="w-6 h-6 rounded-md bg-slate-900 flex items-center justify-center text-white">
           {icon}
         </div>
@@ -311,9 +311,22 @@ function InputSection({ icon, title, badge, children }: {
   );
 }
 
-function KPITile({ label, value, sub, variant = "default" }: {
+function Tooltip({ text }: { text: string }) {
+  return (
+    <span className="group/tip relative inline-flex items-center ml-1 cursor-help align-middle">
+      <HelpCircle className="w-3.5 h-3.5 text-slate-400 hover:text-emerald-500 transition-colors flex-shrink-0" />
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tip:flex w-48 p-2.5 bg-slate-900/95 backdrop-blur-sm text-slate-100 text-[10.5px] font-normal leading-normal rounded-lg shadow-xl border border-slate-700/80 z-50 pointer-events-none normal-case tracking-normal text-center">
+        {text}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+      </span>
+    </span>
+  );
+}
+
+function KPITile({ label, value, sub, variant = "default", badge }: {
   label: string; value: React.ReactNode; sub?: React.ReactNode;
   variant?: "default" | "green" | "red" | "dark";
+  badge?: React.ReactNode;
 }) {
   const styles = {
     default: "bg-white border-slate-200 text-slate-900",
@@ -336,7 +349,10 @@ function KPITile({ label, value, sub, variant = "default" }: {
 
   return (
     <div className={`rounded-xl border px-4 py-3.5 shadow-sm flex flex-col gap-1 ${styles[variant]}`}>
-      <span className={`text-[10.5px] font-bold uppercase tracking-[0.1em] ${labelStyles[variant]}`}>{label}</span>
+      <div className="flex items-center justify-between">
+        <span className={`text-[10.5px] font-bold uppercase tracking-[0.1em] ${labelStyles[variant]}`}>{label}</span>
+        {badge}
+      </div>
       <div className={`font-mono text-[20px] font-bold leading-tight tracking-tight`}>{value}</div>
       {sub && <span className={`text-[11px] font-mono ${subStyles[variant]}`}>{sub}</span>}
     </div>
@@ -393,6 +409,7 @@ export default function App() {
   const [fxSource, setFxSource] = useState<"live" | "manual">("manual");
   const [savedDeals, setSavedDeals] = useState<SavedDeal[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [copiedQuote, setCopiedQuote] = useState(false);
 
   const currentRefId = `BBE-${new Date().getFullYear()}-${String(savedDeals.length + 1).padStart(4, "0")}`;
 
@@ -533,6 +550,40 @@ export default function App() {
     }
   }
 
+  // Ctrl+S / Cmd+S shortcut to save deal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleSave]);
+
+  function handleCopyQuote() {
+    const commName = inp.commodity === "Other" ? inp.customCommodity : inp.commodity;
+    const quoteText = 
+`📊 TRADE MATRIX SUMMARY
+Commodity: ${commName || "General Trade"} (${fmt(result.volumeMT, 1)} MT)
+---------------------------------
+Procurement Rate: ${fmtCurrency(result.procPerKg, currency, fxRate)}/kg
+Wastage / Loss: ${inp.lossPct || 0}%
+Freight Cost: ${fmtCurrency(result.freightPerKg, currency, fxRate)}/kg
+Packaging: ${inp.packagingEnabled ? fmtCurrency(result.packPerKg, currency, fxRate) + "/kg" : "N/A"}
+---------------------------------
+Total Cost: ${fmtCurrency(result.subtotalPerKg, currency, fxRate)}/kg (${fmtCurrencyShort(result.totalSubtotal, currency, fxRate)})
+Selling Price: ${fmtCurrency(result.sellingPerKg, currency, fxRate)}/kg
+Grand Total: ${fmtCurrencyShort(result.grandTotal, currency, fxRate)}
+Net Profit: ${fmtCurrency(result.marginPerKg, currency, fxRate)}/kg (${fmt(marginPct, 1)}% margin)
+Total Net Profit: ${fmtCurrencyShort(result.totalMargin, currency, fxRate)}`;
+
+    navigator.clipboard.writeText(quoteText);
+    setCopiedQuote(true);
+    setTimeout(() => setCopiedQuote(false), 2500);
+  }
+
   function deleteDeal(id: string) {
     const updated = savedDeals.filter(d => d.id !== id);
     setSavedDeals(updated);
@@ -655,13 +706,15 @@ export default function App() {
             <div className="flex items-center gap-1.5 text-slate-400 text-[11.5px] font-mono">
               <span>Rate: 1 {currency} =</span>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={fxRate}
                 onChange={(e) => {
-                  setFxRate(parseFloat(e.target.value) || 1);
+                  const val = e.target.value.replace(/[^0-9.]/g, '');
+                  setFxRate(parseFloat(val) || 1);
                   setFxSource("manual");
                 }}
-                className="w-16 bg-slate-800 border border-slate-700 text-white rounded px-1.5 py-0.5 text-right focus:outline-none focus:border-emerald-500"
+                className="w-24 bg-slate-800 border border-slate-700 text-white rounded px-2 py-0.5 text-center focus:outline-none focus:border-emerald-500"
               />
               <span>INR</span>
               <span className={`text-[9px] font-bold rounded-full px-1.5 py-0.5 uppercase tracking-wide flex items-center gap-1
@@ -676,6 +729,18 @@ export default function App() {
           )}
 
           <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleCopyQuote}
+              className={`flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                copiedQuote
+                  ? "bg-emerald-500 text-white border-emerald-400 shadow-sm"
+                  : "text-slate-400 hover:text-white border-slate-700 hover:border-slate-500"
+              }`}
+              title="Copy formatted trade quote to clipboard"
+            >
+              {copiedQuote ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedQuote ? "Copied!" : "Copy Quote"}
+            </button>
             <button
               onClick={() => setInp(DEMO)}
               className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 transition-all cursor-pointer"
@@ -777,14 +842,14 @@ export default function App() {
               <div className="flex flex-col gap-3">
                 {/* ── 2. Procurement & Loss ── */}
                 <InputSection icon={<IndianRupee className="w-3.5 h-3.5" />} title="Procurement Price & Wastage">
-                  <FieldLabel>Rate</FieldLabel>
+                  <FieldLabel>Rate <Tooltip text="Base procurement price per unit before loss and spec adjustments." /></FieldLabel>
                   <div className="flex gap-2 mb-3">
                     <NumInput value={inp.procPrice} onChange={(v) => set("procPrice", v)} placeholder="18.80"
                       alert={result.exceedsCap && hasData} />
                     <StyledSelect value={inp.procUnit} onChange={(v) => set("procUnit", v as Inputs["procUnit"])} options={["INR/kg", "INR/MT"]} />
                   </div>
                   
-                  <FieldLabel>Estimated Loss / Wastage (%)</FieldLabel>
+                  <FieldLabel>Estimated Loss / Wastage (%) <Tooltip text="Expected moisture loss, spill, or handling wastage during transit/storage." /></FieldLabel>
                   <NumInput value={inp.lossPct} onChange={(v) => set("lossPct", v)} placeholder="0.0%" />
                   {parseFloat(inp.lossPct) >= 100 && (
                     <p className="text-[10px] text-red-500 font-semibold mt-1">
@@ -824,15 +889,15 @@ export default function App() {
                         className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <FieldLabel>Mode</FieldLabel>
+                            <FieldLabel>Mode <Tooltip text="Premium adds to cost for higher grade; Discount deducts for lower quality." /></FieldLabel>
                             <StyledSelect value={inp.specAdjMode} onChange={(v) => set("specAdjMode", v as Inputs["specAdjMode"])} options={["premium", "discount"]} />
                           </div>
                           <div>
-                            <FieldLabel>Basis</FieldLabel>
+                            <FieldLabel>Basis <Tooltip text="Apply quality adjustment as percentage of procurement price or flat INR per kg." /></FieldLabel>
                             <StyledSelect value={inp.specAdjBasis} onChange={(v) => set("specAdjBasis", v as Inputs["specAdjBasis"])} options={["percent", "flat"]} />
                           </div>
                         </div>
-                        <FieldLabel>Amount</FieldLabel>
+                        <FieldLabel>Amount <Tooltip text="Adjustment rate value (e.g. 2.50 per kg or 5% of procurement price)." /></FieldLabel>
                         <NumInput value={inp.specAdjAmount} onChange={(v) => set("specAdjAmount", v)} placeholder="e.g. 2.50 or 5%" />
                         {inp.specAdjAmount && (
                           <p className="text-[11px] text-slate-400 font-mono">
@@ -846,7 +911,7 @@ export default function App() {
 
                 {/* ── 3. Freight preset & logistics ── */}
                 <InputSection icon={<Truck className="w-3.5 h-3.5" />} title="Freight / Logistics">
-                  <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
+                  <div className="space-y-4 pr-1">
                     {(inp.freightLegs || []).map((leg, index) => {
                       const legCost = result.freightLegCosts[index];
                       return (
@@ -869,7 +934,7 @@ export default function App() {
                           </div>
                           
                           <div className="mb-2">
-                            <FieldLabel>Leg Name</FieldLabel>
+                            <FieldLabel>Leg Name <Tooltip text="Custom name for this transport leg (e.g., Farm to Mill, Port to Warehouse)." /></FieldLabel>
                             <input
                               type="text"
                               value={leg.label}
@@ -880,7 +945,7 @@ export default function App() {
                           </div>
 
                           <div className="mb-2">
-                            <FieldLabel>Freight Preset</FieldLabel>
+                            <FieldLabel>Freight Preset <Tooltip text="Select predefined route rate presets or enter custom logistics parameters." /></FieldLabel>
                             <StyledSelect
                               value={leg.preset}
                               onChange={(v) => updateFreightLeg(index, "preset", v)}
@@ -890,7 +955,7 @@ export default function App() {
 
                           <div className="grid grid-cols-2 gap-2 mb-2">
                             <div>
-                              <FieldLabel>Delivery Mode</FieldLabel>
+                              <FieldLabel>Delivery Mode <Tooltip text="FOR: Seller pays delivery freight. Ex-Factory: Buyer collects at warehouse." /></FieldLabel>
                               <div className="flex rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
                                 {([("FOR"), ("Ex-Factory")]).map((m) => (
                                   <button key={m} onClick={() => updateFreightLeg(index, "mode", m)}
@@ -902,7 +967,7 @@ export default function App() {
                               </div>
                             </div>
                             <div>
-                              <FieldLabel>Rate Basis</FieldLabel>
+                              <FieldLabel>Rate Basis <Tooltip text="Freight cost basis: Per Ton, Per kg, or Flat Rate total deal lump sum." /></FieldLabel>
                               <StyledSelect
                                 value={leg.rate}
                                 onChange={(v) => updateFreightLeg(index, "rate", v as FreightLeg["rate"])}
@@ -911,7 +976,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          <FieldLabel>Amount</FieldLabel>
+                          <FieldLabel>Amount <Tooltip text="Freight charge according to selected rate basis." /></FieldLabel>
                           <NumInput
                             value={leg.amount}
                             onChange={(v) => {
@@ -941,7 +1006,7 @@ export default function App() {
                   {inp.freightLegs.length < 3 && (
                     <button
                       onClick={() => {
-                        const newLeg = {
+                        const newLeg: FreightLeg = {
                           id: `leg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
                           label: `Leg ${inp.freightLegs.length + 1}`,
                           preset: "Custom",
@@ -974,7 +1039,7 @@ export default function App() {
                                 {/* ── 1. Volume ── */}
                 <InputSection icon={getCommodityIcon(inp.commodity === "Other" ? inp.customCommodity : inp.commodity)} title="Deal Volume">
                   <div className="mb-3">
-                    <FieldLabel>Commodity</FieldLabel>
+                    <FieldLabel>Commodity <Tooltip text="Target trade commodity for calculations and default density factors." /></FieldLabel>
                     <StyledSelect
                       value={inp.commodity}
                       onChange={(v) => set("commodity", v)}
@@ -995,7 +1060,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <FieldLabel>Quantity</FieldLabel>
+                  <FieldLabel>Quantity <Tooltip text="Total trade contract deal volume." /></FieldLabel>
                   <div className="flex gap-2 mb-3">
                     <NumInput value={inp.volume} onChange={(v) => set("volume", v)} placeholder="100" />
                     <StyledSelect value={inp.volumeUnit} onChange={(v) => set("volumeUnit", v as Inputs["volumeUnit"])} options={["MT", "kg", "Quintal", "Custom"]} />
@@ -1004,7 +1069,7 @@ export default function App() {
                   {inp.volumeUnit === "Custom" && (
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       <div>
-                        <FieldLabel>Unit Name</FieldLabel>
+                        <FieldLabel>Unit Name <Tooltip text="Custom volume unit name (e.g., bale, barrel, bag)." /></FieldLabel>
                         <input
                           type="text"
                           value={inp.customUnitLabel}
@@ -1014,7 +1079,7 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <FieldLabel>kg per Unit</FieldLabel>
+                        <FieldLabel>kg per Unit <Tooltip text="Weight factor in kg for 1 custom volume unit." /></FieldLabel>
                         <NumInput value={inp.customUnitKgFactor} onChange={(v) => set("customUnitKgFactor", v)} placeholder="50" />
                       </div>
                     </div>
@@ -1050,17 +1115,17 @@ export default function App() {
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }}
                         className="overflow-hidden border-t border-slate-100 pt-3 flex flex-col gap-2">
-                        <FieldLabel>Rate Basis</FieldLabel>
+                        <FieldLabel>Rate Basis <Tooltip text="Packaging charge unit basis: Per Quintal (100kg), Per 50kg bag, or Custom kg divisor." /></FieldLabel>
                         <StyledSelect value={inp.packagingBasis} onChange={(v) => set("packagingBasis", v as Inputs["packagingBasis"])} options={["Per Quintal", "Per 50kg bag", "Custom"]} />
                         
                         {inp.packagingBasis === "Custom" && (
                           <div className="mb-2">
-                            <FieldLabel>Custom Divisor (kg per unit)</FieldLabel>
+                            <FieldLabel>Custom Divisor (kg per unit) <Tooltip text="Weight in kg per packaging unit." /></FieldLabel>
                             <NumInput value={inp.packagingCustomDivisor} onChange={(v) => set("packagingCustomDivisor", v)} placeholder="100" />
                           </div>
                         )}
 
-                        <FieldLabel>Rate (INR)</FieldLabel>
+                        <FieldLabel>Rate (INR) <Tooltip text="Packaging cost per selected rate basis unit." /></FieldLabel>
                         <NumInput value={inp.packagingRate} onChange={(v) => set("packagingRate", v)} placeholder="120" />
                         {inp.packagingRate && (
                           <p className="text-[11px] text-slate-400 font-mono">
@@ -1079,7 +1144,7 @@ export default function App() {
                 <InputSection icon={<TrendingUp className="w-3.5 h-3.5" />} title={inp.mode === "reverse" ? "Target Price (Reverse)" : "Target Profit Margin"}>
                   {inp.mode === "reverse" ? (
                     <>
-                      <FieldLabel>Target Selling Price (INR/kg)</FieldLabel>
+                      <FieldLabel>Target Selling Price (INR/kg) <Tooltip text="Target selling price. Calculates the required margin and checks deal profitability." /></FieldLabel>
                       <NumInput value={inp.targetSellingPrice} onChange={(v) => set("targetSellingPrice", v)} placeholder="22.00" />
                       {inp.targetSellingPrice && result.subtotalPerKg > 0 && (
                         <div className="mt-2.5 font-mono text-[11px]">
@@ -1102,7 +1167,7 @@ export default function App() {
                     </>
                   ) : (
                     <>
-                      <FieldLabel>Fixed Margin (INR/kg)</FieldLabel>
+                      <FieldLabel>Fixed Margin (INR/kg) <Tooltip text="Desired net profit margin per kg added on top of total landed cost." /></FieldLabel>
                       <NumInput value={inp.targetMargin} onChange={(v) => set("targetMargin", v)} placeholder="1.40" />
                       <AnimatePresence>
                         {inp.targetMargin && result.subtotalPerKg > 0 && (
@@ -1166,7 +1231,20 @@ export default function App() {
                 label="Net Margin"
                 value={<AnimatedNumber value={result.marginPerKg / fxRate} prefix={currency === "INR" ? "₹" : currency === "USD" ? "$" : "€"} />}
                 sub={`${fmt(marginPct, 1)}% on cost`}
-                variant="green"
+                variant={marginPct <= 0 ? "red" : marginPct < 5 ? "default" : "green"}
+                badge={
+                  hasData ? (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                      marginPct <= 0
+                        ? "bg-red-200 text-red-900"
+                        : marginPct < 5
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-emerald-200 text-emerald-900"
+                    }`}>
+                      {marginPct <= 0 ? "Loss" : marginPct < 5 ? "Slim" : "Healthy"}
+                    </span>
+                  ) : undefined
+                }
               />
               <KPITile
                 label="Sell Price / kg"
