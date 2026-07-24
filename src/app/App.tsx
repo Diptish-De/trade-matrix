@@ -361,21 +361,27 @@ export default function App() {
     }
   }, []);
 
-  // Fetch live exchange rates on mount
+  // Fetch live exchange rates on mount and every 60s
   useEffect(() => {
-    fetch("https://open.er-api.com/v6/latest/USD")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.rates && data.rates.INR) {
-          const usdToInr = data.rates.INR;
-          const eurToInr = data.rates.INR / (data.rates.EUR || 0.92);
-          setLiveRates({
-            USD: Number(usdToInr.toFixed(2)),
-            EUR: Number(eurToInr.toFixed(2)),
-          });
-        }
-      })
-      .catch((err) => console.error("Error fetching rates:", err));
+    const fetchRates = () => {
+      fetch("https://open.er-api.com/v6/latest/USD")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.rates && data.rates.INR) {
+            const usdToInr = data.rates.INR;
+            const eurToInr = data.rates.INR / (data.rates.EUR || 0.92);
+            setLiveRates({
+              USD: Number(usdToInr.toFixed(2)),
+              EUR: Number(eurToInr.toFixed(2)),
+            });
+          }
+        })
+        .catch((err) => console.error("Error fetching rates:", err));
+    };
+
+    fetchRates();
+    const interval = setInterval(fetchRates, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -517,6 +523,20 @@ Net Profit: ${fmtCurrency(result.marginPerKg, currency, fxRate)}/kg (${fmt(resul
               <Activity className="w-4 h-4" strokeWidth={2.5} />
             </div>
             <span className="font-extrabold text-[16px] tracking-tight text-slate-900">TradeMatrix</span>
+          </div>
+
+          {/* Live FX Rates Badge (1 Rupee = USD / EUR) */}
+          <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-full px-3 py-1 text-[11px] font-mono shadow-2xs">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-sans font-bold text-slate-500 text-[10.5px]">Live FX:</span>
+            <span className="font-semibold text-slate-800">₹1 = ${(1 / liveRates.USD).toFixed(4)}</span>
+            <span className="text-slate-300">·</span>
+            <span className="font-semibold text-slate-800">₹1 = €{(1 / liveRates.EUR).toFixed(4)}</span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-400 text-[10px]">($1 = ₹{liveRates.USD})</span>
           </div>
 
           {/* Right Header Controls */}
