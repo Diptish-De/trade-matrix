@@ -332,6 +332,8 @@ export default function App() {
   const [dealName, setDealName] = useState("");
   const [currency, setCurrency] = useState<"INR" | "USD" | "EUR">("INR");
   const [liveRates, setLiveRates] = useState({ USD: 83.5, EUR: 91.0 });
+  const [fxStatus, setFxStatus] = useState<"live" | "manual" | "failed">("live");
+  const [showFxModal, setShowFxModal] = useState(false);
   const [fxRate, setFxRate] = useState<number>(1.0);
   const [savedDeals, setSavedDeals] = useState<SavedDeal[]>([]);
   const [copiedQuote, setCopiedQuote] = useState(false);
@@ -370,19 +372,26 @@ export default function App() {
           if (data && data.rates && data.rates.INR) {
             const usdToInr = data.rates.INR;
             const eurToInr = data.rates.INR / (data.rates.EUR || 0.92);
-            setLiveRates({
+            setLiveRates((prev) => ({
+              ...prev,
               USD: Number(usdToInr.toFixed(2)),
               EUR: Number(eurToInr.toFixed(2)),
-            });
+            }));
+            if (fxStatus !== "manual") setFxStatus("live");
+          } else {
+            setFxStatus("failed");
           }
         })
-        .catch((err) => console.error("Error fetching rates:", err));
+        .catch((err) => {
+          console.error("Error fetching rates:", err);
+          setFxStatus("failed");
+        });
     };
 
     fetchRates();
     const interval = setInterval(fetchRates, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fxStatus]);
 
   useEffect(() => {
     if (currency === "USD") setFxRate(liveRates.USD);
@@ -525,18 +534,128 @@ Net Profit: ${fmtCurrency(result.marginPerKg, currency, fxRate)}/kg (${fmt(resul
             <span className="font-extrabold text-[16px] tracking-tight text-slate-900">TradeMatrix</span>
           </div>
 
-          {/* Live FX Rates Badge (1 Rupee = USD / EUR) */}
-          <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-full px-3 py-1 text-[11px] font-mono shadow-2xs">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="font-sans font-bold text-slate-500 text-[10.5px]">Live FX:</span>
-            <span className="font-semibold text-slate-800">₹1 = ${(1 / liveRates.USD).toFixed(4)}</span>
-            <span className="text-slate-300">·</span>
-            <span className="font-semibold text-slate-800">₹1 = €{(1 / liveRates.EUR).toFixed(4)}</span>
-            <span className="text-slate-300">|</span>
-            <span className="text-slate-400 text-[10px]">($1 = ₹{liveRates.USD})</span>
+          {/* FX Rates Badge (Interactive for Live & Manual mode) */}
+          <div className="relative">
+            <button
+              onClick={() => setShowFxModal(!showFxModal)}
+              title="Click to view or edit exchange rates manually"
+              className={`hidden md:flex items-center gap-2 border rounded-full px-3 py-1 text-[11px] font-mono shadow-2xs transition-all cursor-pointer hover:bg-slate-100 ${
+                fxStatus === "live"
+                  ? "bg-slate-50 border-slate-200/80"
+                  : fxStatus === "manual"
+                  ? "bg-blue-50 border-blue-200 text-blue-900"
+                  : "bg-amber-50 border-amber-200 text-amber-900"
+              }`}
+            >
+              <span className="relative flex h-2 w-2">
+                {fxStatus === "live" ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </>
+                ) : fxStatus === "manual" ? (
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                )}
+              </span>
+              <span className="font-sans font-bold text-slate-500 text-[10.5px]">
+                {fxStatus === "live" ? "Live FX:" : fxStatus === "manual" ? "Manual FX:" : "Manual (Offline):"}
+              </span>
+              <span className="font-semibold text-slate-800">₹1 = ${(1 / liveRates.USD).toFixed(4)}</span>
+              <span className="text-slate-300">·</span>
+              <span className="font-semibold text-slate-800">₹1 = €{(1 / liveRates.EUR).toFixed(4)}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-slate-400 text-[10px]">($1 = ₹{liveRates.USD})</span>
+            </button>
+
+            {/* FX Manual Rates Popover Modal */}
+            <AnimatePresence>
+              {showFxModal && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  className="absolute left-0 mt-2 w-72 bg-white rounded-xl border border-slate-200 shadow-xl p-4 z-50 text-[12px]"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+                    <span className="font-bold text-slate-800">Exchange Rates & Mode</span>
+                    <button
+                      onClick={() => setShowFxModal(false)}
+                      className="text-slate-400 hover:text-slate-600 font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-semibold">
+                      <button
+                        onClick={() => setFxStatus("live")}
+                        className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${
+                          fxStatus === "live" ? "bg-white text-slate-800 shadow-2xs" : "text-slate-500"
+                        }`}
+                      >
+                        Live (API)
+                      </button>
+                      <button
+                        onClick={() => setFxStatus("manual")}
+                        className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${
+                          fxStatus === "manual" || fxStatus === "failed" ? "bg-white text-slate-800 shadow-2xs" : "text-slate-500"
+                        }`}
+                      >
+                        Manual Override
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">1 USD ($) in INR (₹)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={liveRates.USD}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 1;
+                            setLiveRates((prev) => ({ ...prev, USD: val }));
+                            setFxStatus("manual");
+                          }}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Equiv: ₹1 = ${(1 / (liveRates.USD || 1)).toFixed(4)} USD
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">1 EUR (€) in INR (₹)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={liveRates.EUR}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 1;
+                            setLiveRates((prev) => ({ ...prev, EUR: val }));
+                            setFxStatus("manual");
+                          }}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Equiv: ₹1 = €{(1 / (liveRates.EUR || 1)).toFixed(4)} EUR
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setShowFxModal(false)}
+                      className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-1.5 rounded-lg text-[12px] transition-colors cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Right Header Controls */}
